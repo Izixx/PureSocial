@@ -32,7 +32,7 @@ public struct MainView: View {
                 // 2. Si aucune plateforme n'est ouverte : Affichage de l'Écran d'Accueil Hub
                 if let platform = activePlatform {
                     ImmersiveSocialView(platform: platform, config: config) {
-                        withAnimation(.easeInOut(duration: 0.3)) {
+                        withAnimation(.easeInOut(duration: 0.25)) {
                             activePlatform = nil
                         }
                     }
@@ -63,13 +63,16 @@ public struct MainView: View {
                     platform: targetPlatform,
                     durationSeconds: config.frictionDurationSeconds,
                     onProceed: {
-                        activePlatform = targetPlatform
-                        pendingPlatform = nil
                         showingFriction = false
+                        // Léger délai pour permettre la fermeture propre de la vue modale
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            activePlatform = targetPlatform
+                            pendingPlatform = nil
+                        }
                     },
                     onCancel: {
-                        pendingPlatform = nil
                         showingFriction = false
+                        pendingPlatform = nil
                     }
                 )
             }

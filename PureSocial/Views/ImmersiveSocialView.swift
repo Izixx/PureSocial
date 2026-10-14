@@ -2,8 +2,7 @@ import SwiftUI
 
 /// Vue plein écran immersive affichant le réseau social sélectionné
 /// sans aucune barre de navigation supérieure, reproduisant l'expérience de l'application native.
-/// Affiche un écran de transition soigné pendant le chargement initial et fournit
-/// une pilule flottante déplaçable pour revenir à l'accueil à tout moment.
+/// Fournit une pilule flottante déplaçable pour revenir à l'accueil à tout moment.
 public struct ImmersiveSocialView: View {
     public let platform: SocialPlatform
     @ObservedObject public var config: ConfigManager
@@ -27,10 +26,10 @@ public struct ImmersiveSocialView: View {
     
     public var body: some View {
         ZStack {
-            // Fond adaptatif clair/sombre pour éviter tout écran noir figé
+            // Fond adaptatif clair/sombre
             Color(UIColor.systemBackground).ignoresSafeArea()
             
-            // WKWebView pleine page
+            // WKWebView pleine page affichée immédiatement sans écran de masquage
             SocialWebView(
                 platform: platform,
                 config: config,
@@ -39,45 +38,12 @@ public struct ImmersiveSocialView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea()
             
-            // Écran de chargement initial gracieux
-            if !navModel.hasFinishedInitialLoad {
-                VStack(spacing: 20) {
-                    ZStack {
-                        Circle()
-                            .fill(platform.themeColor.opacity(0.15))
-                            .frame(width: 80, height: 80)
-                        
-                        Image(systemName: platform.sfSymbol)
-                            .font(.system(size: 38, weight: .semibold))
-                            .foregroundColor(platform.themeColor)
-                    }
-                    
-                    VStack(spacing: 8) {
-                        Text(platform.rawValue)
-                            .font(.title3)
-                            .fontWeight(.bold)
-                        
-                        Text("Connexion sécurisée en cours...")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: platform.themeColor))
-                        .scaleEffect(1.2)
-                        .padding(.top, 4)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(UIColor.systemBackground))
-                .transition(.opacity)
-            }
-            
-            // Barre de progression discrète en cours de navigation
-            if navModel.isLoading && navModel.hasFinishedInitialLoad {
+            // Barre de progression fine au sommet pendant le chargement
+            if navModel.isLoading {
                 VStack {
-                    ProgressView(value: navModel.estimatedProgress, total: 1.0)
+                    ProgressView(value: max(0.05, navModel.estimatedProgress), total: 1.0)
                         .progressViewStyle(LinearProgressViewStyle(tint: platform.themeColor))
-                        .frame(height: 2)
+                        .frame(height: 3)
                     Spacer()
                 }
                 .ignoresSafeArea()

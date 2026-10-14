@@ -6,10 +6,9 @@ public final class WebViewNavigationModel: ObservableObject {
     @Published public var canGoBack: Bool = false
     @Published public var canGoForward: Bool = false
     @Published public var estimatedProgress: Double = 0.0
-    @Published public var isLoading: Bool = true
+    @Published public var isLoading: Bool = false
     @Published public var currentTitle: String = ""
     @Published public var currentURL: URL? = nil
-    @Published public var hasFinishedInitialLoad: Bool = false
     
     fileprivate var actionGoBack: (() -> Void)?
     fileprivate var actionGoForward: (() -> Void)?
@@ -68,12 +67,11 @@ public struct SocialWebView: UIViewRepresentable {
         webView.allowsBackForwardNavigationGestures = true
         webView.customUserAgent = config.customUserAgent
         
-        // Évite tout clignotement ou écran noir opaque
-        webView.isOpaque = false
+        // Rendu immédiat et fond système propre
         webView.backgroundColor = .systemBackground
         webView.scrollView.backgroundColor = .systemBackground
         
-        // Support plein écran
+        // Support plein écran natif
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         
         // Pull-to-refresh natif discret
@@ -95,9 +93,12 @@ public struct SocialWebView: UIViewRepresentable {
             webView.customUserAgent = config.customUserAgent
         }
         
-        let updatedCSS = ContentBlockerScripts.makeCSS(for: platform, config: config)
-        let updateScript = ContentBlockerScripts.makeCSSInjectionScript(cssContent: updatedCSS)
-        webView.evaluateJavaScript(updateScript, completionHandler: nil)
+        // N'exécute le CSS dynamique que si la page est déjà chargée
+        if webView.url != nil && !webView.isLoading {
+            let updatedCSS = ContentBlockerScripts.makeCSS(for: platform, config: config)
+            let updateScript = ContentBlockerScripts.makeCSSInjectionScript(cssContent: updatedCSS)
+            webView.evaluateJavaScript(updateScript, completionHandler: nil)
+        }
     }
     
     public final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
@@ -118,38 +119,37 @@ public struct SocialWebView: UIViewRepresentable {
         func setupKVO(for webView: WKWebView) {
             self.webView = webView
             
-            observers.append(webView.observe(\.isLoading, options: [.new]) { [weak self] view, _ in
+            observers.append(webView.observe(\.isLoading, options: [.initial, .new]) { [weak self] view, _ in
                 DispatchQueue.main.async {
                     self?.parent.navigationModel.isLoading = view.isLoading
                     if !view.isLoading {
                         view.scrollView.refreshControl?.endRefreshing()
-                        self?.parent.navigationModel.hasFinishedInitialLoad = true
                     }
                 }
             })
             
-            observers.append(webView.observe(\.estimatedProgress, options: [.new]) { [weak self] view, _ in
+            observers.append(webView.observe(\.estimatedProgress, options: [.initial, .new]) { [weak self] view, _ in
                 DispatchQueue.main.async {
                     self?.parent.navigationModel.estimatedProgress = view.estimatedProgress
                 }
             })
             
-            observers.append(webView.observe(\.canGoBack, options: [.new]) { [weak self] view, _ in
+            observers.append(webView.observe(\.canGoBack, options: [.initial, .new]) { [weak self] view, _ in
                 DispatchQueue.main.async {
                     self?.parent.navigationModel.canGoBack = view.canGoBack
                 }
             })
-            observers.append(webView.observe(\.canGoForward, options: [.new]) { [weak self] view, _ in
+            observers.append(webView.observe(\.canGoForward, options: [.initial, .new]) { [weak self] view, _ in
                 DispatchQueue.main.async {
                     self?.parent.navigationModel.canGoForward = view.canGoForward
                 }
             })
-            observers.append(webView.observe(\.url, options: [.new]) { [weak self] view, _ in
+            observers.append(webView.observe(\.url, options: [.initial, .new]) { [weak self] view, _ in
                 DispatchQueue.main.async {
                     self?.parent.navigationModel.currentURL = view.url
                 }
             })
-            observers.append(webView.observe(\.title, options: [.new]) { [weak self] view, _ in
+            observers.append(webView.observe(\.title, options: [.initial, .new]) { [weak self] view, _ in
                 DispatchQueue.main.async {
                     self?.parent.navigationModel.currentTitle = view.title ?? ""
                 }
@@ -188,39 +188,20 @@ public struct SocialWebView: UIViewRepresentable {
                 return
             }
             
-            let host = url.host?.lowercased() ?? ""
-            let path = url.path.lowercased()
-            
-            // RÈGLE PRIORITAIRE : Ne JAMAIS bloquer ou rediriger les pages d'authentification et de connexion !
-            let isAuthFlow = path.contains("/login") ||
-                             path.contains("/accounts") ||
-                             path.contains("/signup") ||
-                             path.contains("/signin") ||
-                             path.contains("/auth") ||
-                             path.contains("/checkpoint") ||
-                             path.contains("/challenge") ||
-                             host.contains("accounts.google.com") ||
-                             host.contains("appleid.apple.com")
-            
-            if isAuthFlow {
-                decisionHandler(.allow)
-                return
-            }
-            
-            // Filtrage ciblé Instagram Reels uniquement (sans toucher à l'écran de Login)
-            if host.contains("instagram.com") {
-                if parent.config.hideInstaReels && (path.contains("/reels/") || path.hasPrefix("/reel/")) {
+            // FILTRAGE STRICTEMENT RÉSERVÉ AUX CLICS EXPLICITES DE L'UTILISATEUR
+            // Ne bloque JAMAIS les chargements de pages initiaux, ni les redirections de login !
+            if navigationAction.navigationType == .linkActivated {
+                let host = url.host?.lowercased() ?? ""
+                let path = url.path.lowercased()
+                
+                // Bloquer les clics utilisateur vers les Reels
+                if host.contains("instagram.com") && parent.config.hideInstaReels && (path.contains("/reels/") || path.hasPrefix("/reel/")) {
                     decisionHandler(.cancel)
-                    if let inboxURL = URL(string: "https://www.instagram.com/direct/inbox/") {
-                        webView.load(URLRequest(url: inboxURL))
-                    }
                     return
                 }
-            }
-            
-            // Filtrage ciblé YouTube Shorts -> Conversion en vidéo classique
-            if host.contains("youtube.com") {
-                if parent.config.hideYTShorts && path.hasPrefix("/shorts/") {
+                
+                // Convertir les clics Shorts en vidéos classiques
+                if host.contains("youtube.com") && parent.config.hideYTShorts && path.hasPrefix("/shorts/") {
                     let videoID = url.lastPathComponent
                     if !videoID.isEmpty && videoID != "shorts" {
                         decisionHandler(.cancel)
@@ -232,13 +213,6 @@ public struct SocialWebView: UIViewRepresentable {
                 }
             }
             
-            // Liens externes ou cibles _blank : maintien dans la même vue
-            if navigationAction.targetFrame == nil {
-                webView.load(navigationAction.request)
-                decisionHandler(.cancel)
-                return
-            }
-            
             decisionHandler(.allow)
         }
         
@@ -246,16 +220,6 @@ public struct SocialWebView: UIViewRepresentable {
             let updatedCSS = ContentBlockerScripts.makeCSS(for: parent.platform, config: parent.config)
             let script = ContentBlockerScripts.makeCSSInjectionScript(cssContent: updatedCSS)
             webView.evaluateJavaScript(script, completionHandler: nil)
-        }
-        
-        public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            parent.navigationModel.isLoading = false
-            print("[PureSocial] Navigation failed: \(error.localizedDescription)")
-        }
-        
-        public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            parent.navigationModel.isLoading = false
-            print("[PureSocial] Provisional navigation failed: \(error.localizedDescription)")
         }
         
         public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
