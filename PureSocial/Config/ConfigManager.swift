@@ -1,13 +1,17 @@
 import SwiftUI
 import Combine
 
-/// Gestionnaire centralisé des configurations et préférences anti-addiction de l'utilisateur.
-/// Utilise UserDefaults / @AppStorage pour garantir la persistance entre les lancements.
+/// Gestionnaire centralisé des configurations, préférences et résultats du quiz de l'utilisateur.
 public final class ConfigManager: ObservableObject {
     public static let shared = ConfigManager()
     
     // MARK: - Clés UserDefaults
     private enum Keys {
+        static let hasCompletedOnboarding = "pure_hasCompletedOnboarding"
+        static let quizDailyHours = "pure_quizDailyHours"
+        static let quizPrimaryGoal = "pure_quizPrimaryGoal"
+        static let quizOffScreenActivity = "pure_quizOffScreenActivity"
+        
         static let hideInstaReels = "pure_hideInstaReels"
         static let hideInstaExplore = "pure_hideInstaExplore"
         static let hideInstaMainFeed = "pure_hideInstaMainFeed"
@@ -28,8 +32,24 @@ public final class ConfigManager: ObservableObject {
     }
     
     // User-Agent standard Safari iOS 17.5 pour iPhone.
-    // Évite les alertes de sécurité OAuth (Google / YouTube) et les bugs de mise en page.
     public static let defaultSafariUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
+    
+    // MARK: - État Onboarding & Profil Quiz
+    @AppStorage(Keys.hasCompletedOnboarding) public var hasCompletedOnboarding: Bool = false {
+        didSet { notifyConfigurationChanged() }
+    }
+    
+    @AppStorage(Keys.quizDailyHours) public var quizDailyHours: String = "3h - 5h" {
+        didSet { notifyConfigurationChanged() }
+    }
+    
+    @AppStorage(Keys.quizPrimaryGoal) public var quizPrimaryGoal: String = "Stopper le doomscrolling" {
+        didSet { notifyConfigurationChanged() }
+    }
+    
+    @AppStorage(Keys.quizOffScreenActivity) public var quizOffScreenActivity: String = "Sport & Projets" {
+        didSet { notifyConfigurationChanged() }
+    }
     
     // MARK: - Préférences Instagram
     @AppStorage(Keys.hideInstaReels) public var hideInstaReels: Bool = true {
@@ -94,36 +114,64 @@ public final class ConfigManager: ObservableObject {
         set { lastSelectedPlatformRaw = newValue.rawValue }
     }
     
-    /// Identifiant de version pour forcer la mise à jour des scripts dynamiques dans WKWebView
     @Published public private(set) var configurationRevision: UUID = UUID()
     
     public init() {}
     
-    /// Notifie les écouteurs qu'une règle de blocage ou d'affichage a changé
     public func notifyConfigurationChanged() {
         configurationRevision = UUID()
         objectWillChange.send()
     }
     
-    /// Réinitialise tous les réglages aux valeurs d'usine recommandées (Protection maximale)
+    /// Adapte la configuration de l'application selon les réponses du quiz
+    public func applyQuizProfile(dailyHours: String, goal: String, activity: String) {
+        self.quizDailyHours = dailyHours
+        self.quizPrimaryGoal = goal
+        self.quizOffScreenActivity = activity
+        self.hasCompletedOnboarding = true
+        
+        // Configuration stricte si temps d'écran élevé
+        if dailyHours.contains("3h") || dailyHours.contains("5h") {
+            self.hideInstaReels = true
+            self.hideInstaExplore = true
+            self.hideInstaMainFeed = true
+            self.hideYTShorts = true
+            self.hideYTHomeRecommendations = true
+            self.hideYTRelatedVideos = true
+            self.hideYTComments = true
+            self.hideTikTokFYP = true
+            self.hideXForYouTab = true
+            self.intentionalFrictionEnabled = true
+            self.frictionDurationSeconds = 5
+        } else {
+            // Configuration équilibrée
+            self.hideInstaReels = true
+            self.hideInstaExplore = true
+            self.hideInstaMainFeed = false
+            self.hideYTShorts = true
+            self.hideYTHomeRecommendations = false
+            self.hideYTRelatedVideos = true
+            self.intentionalFrictionEnabled = true
+            self.frictionDurationSeconds = 3
+        }
+        
+        notifyConfigurationChanged()
+    }
+    
     public func resetToStrictDefaults() {
         hideInstaReels = true
         hideInstaExplore = true
         hideInstaMainFeed = true
-        
         hideYTShorts = true
         hideYTHomeRecommendations = true
         hideYTRelatedVideos = true
         hideYTComments = true
-        
         hideTikTokFYP = true
         hideXForYouTab = true
-        
         grayscaleMode = false
         intentionalFrictionEnabled = true
         frictionDurationSeconds = 5
         customUserAgent = ConfigManager.defaultSafariUserAgent
-        
         notifyConfigurationChanged()
     }
 }

@@ -10,7 +10,6 @@ public final class WebViewNavigationModel: ObservableObject {
     @Published public var currentTitle: String = ""
     @Published public var currentURL: URL? = nil
     
-    // Commandes déclenchées par l'interface utilisateur
     fileprivate var actionGoBack: (() -> Void)?
     fileprivate var actionGoForward: (() -> Void)?
     fileprivate var actionReload: (() -> Void)?
@@ -24,7 +23,7 @@ public final class WebViewNavigationModel: ObservableObject {
     public func load(url: URL) { actionLoadURL?(url) }
 }
 
-/// Wrapper UIViewRepresentable encapsulant une instance optimisée de WKWebView
+/// Wrapper UIViewRepresentable encapsulant WKWebView en plein écran immersif
 public struct SocialWebView: UIViewRepresentable {
     public let platform: SocialPlatform
     @ObservedObject public var config: ConfigManager
@@ -45,15 +44,16 @@ public struct SocialWebView: UIViewRepresentable {
     }
     
     public func makeUIView(context: Context) -> WKWebView {
-        // 1. Configuration du WebKit
         let configuration = WKWebViewConfiguration()
         
-        // PERSISTANCE DES SESSIONS : default() garantit la conservation des cookies et tokens
+        // PERSISTANCE DES SESSIONS : default() garantit la conservation des cookies et des connexions
         configuration.websiteDataStore = WKWebsiteDataStore.default()
         configuration.allowsInlineMediaPlayback = true
-        configuration.mediaTypesRequiringUserActionForPlayback = []
         
-        // 2. Injection des scripts initiaux (CSS + JS)
+        // REQUIS : Bloque le son et la lecture automatique des vidéos sans interaction utilisateur !
+        configuration.mediaTypesRequiringUserActionForPlayback = .all
+        
+        // Injection des scripts de blocage et de silence audio
         let userContentController = WKUserContentController()
         let scripts = ContentBlockerScripts.makeUserScripts(for: platform, config: config)
         for script in scripts {
@@ -61,29 +61,23 @@ public struct SocialWebView: UIViewRepresentable {
         }
         configuration.userContentController = userContentController
         
-        // 3. Création de la WKWebView
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
-        
-        // Gestes de balayage retour / avant natifs iOS
         webView.allowsBackForwardNavigationGestures = true
-        
-        // User-Agent Spoofing pour éviter le blocage OAuth (Google/YouTube/Instagram)
         webView.customUserAgent = config.customUserAgent
         
-        // Pull-to-refresh natif
+        // Support plein écran immersif sans décalage
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
+        
+        // Pull-to-refresh natif discret
         let refreshControl = UIRefreshControl()
         refreshControl.addTarget(context.coordinator, action: #selector(Coordinator.handleRefreshControl(_:)), for: .valueChanged)
         webView.scrollView.refreshControl = refreshControl
         
-        // 4. KVO Observers pour l'état de navigation et la barre de progression
         context.coordinator.setupKVO(for: webView)
-        
-        // 5. Liaisons d'actions du modèle de navigation
         context.coordinator.bindActions(to: navigationModel, webView: webView)
         
-        // 6. Chargement de l'URL initiale
         let request = URLRequest(url: platform.initialURL, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 30)
         webView.load(request)
         
@@ -91,18 +85,15 @@ public struct SocialWebView: UIViewRepresentable {
     }
     
     public func updateUIView(_ webView: WKWebView, context: Context) {
-        // Met à jour le User-Agent si modifié dans les réglages
         if webView.customUserAgent != config.customUserAgent {
             webView.customUserAgent = config.customUserAgent
         }
         
-        // Mise à jour dynamique du CSS sans recharger la page
+        // Mise à jour dynamique du CSS sans rechargement
         let updatedCSS = ContentBlockerScripts.makeCSS(for: platform, config: config)
         let updateScript = ContentBlockerScripts.makeCSSInjectionScript(cssContent: updatedCSS)
         webView.evaluateJavaScript(updateScript, completionHandler: nil)
     }
-    
-    // MARK: - Coordinateur (Navigation & KVO)
     
     public final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         private var parent: SocialWebView
@@ -122,7 +113,6 @@ public struct SocialWebView: UIViewRepresentable {
         func setupKVO(for webView: WKWebView) {
             self.webView = webView
             
-            // Suivi du chargement
             observers.append(webView.observe(\.isLoading, options: [.new]) { [weak self] view, _ in
                 DispatchQueue.main.async {
                     self?.parent.navigationModel.isLoading = view.isLoading
@@ -132,14 +122,12 @@ public struct SocialWebView: UIViewRepresentable {
                 }
             })
             
-            // Suivi de la progression
             observers.append(webView.observe(\.estimatedProgress, options: [.new]) { [weak self] view, _ in
                 DispatchQueue.main.async {
                     self?.parent.navigationModel.estimatedProgress = view.estimatedProgress
                 }
             })
             
-            // Suivi de l'historique retour / avant
             observers.append(webView.observe(\.canGoBack, options: [.new]) { [weak self] view, _ in
                 DispatchQueue.main.async {
                     self?.parent.navigationModel.canGoBack = view.canGoBack
@@ -150,8 +138,6 @@ public struct SocialWebView: UIViewRepresentable {
                     self?.parent.navigationModel.canGoForward = view.canGoForward
                 }
             })
-            
-            // Suivi de l'URL et du titre
             observers.append(webView.observe(\.url, options: [.new]) { [weak self] view, _ in
                 DispatchQueue.main.async {
                     self?.parent.navigationModel.currentURL = view.url
@@ -203,7 +189,6 @@ public struct SocialWebView: UIViewRepresentable {
             if host.contains("instagram.com") {
                 if parent.config.hideInstaReels && (path.contains("/reels/") || path.hasPrefix("/reel/")) {
                     decisionHandler(.cancel)
-                    // Redirection douce vers la boîte de réception
                     if let inboxURL = URL(string: "https://www.instagram.com/direct/inbox/") {
                         webView.load(URLRequest(url: inboxURL))
                     }
@@ -221,7 +206,6 @@ public struct SocialWebView: UIViewRepresentable {
             // 2. Filtrage strict YouTube Shorts
             if host.contains("youtube.com") {
                 if parent.config.hideYTShorts && path.hasPrefix("/shorts/") {
-                    // Convertir en vidéo classique
                     let videoID = url.lastPathComponent
                     if !videoID.isEmpty && videoID != "shorts" {
                         decisionHandler(.cancel)
@@ -233,7 +217,7 @@ public struct SocialWebView: UIViewRepresentable {
                 }
             }
             
-            // 3. Gestion des liens externes ou cibles _blank : navigation dans la même vue
+            // 3. Gestion des liens popup ou target="_blank"
             if navigationAction.targetFrame == nil {
                 webView.load(navigationAction.request)
                 decisionHandler(.cancel)
@@ -244,13 +228,11 @@ public struct SocialWebView: UIViewRepresentable {
         }
         
         public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            // Ré-injection de sécurité après le chargement complet
             let updatedCSS = ContentBlockerScripts.makeCSS(for: parent.platform, config: parent.config)
             let script = ContentBlockerScripts.makeCSSInjectionScript(cssContent: updatedCSS)
             webView.evaluateJavaScript(script, completionHandler: nil)
         }
         
-        // MARK: - WKUIDelegate (ouverture des fenêtres popups dans la vue principale)
         public func webView(
             _ webView: WKWebView,
             createWebViewWith configuration: WKWebViewConfiguration,

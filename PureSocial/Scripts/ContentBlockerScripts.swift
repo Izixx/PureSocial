@@ -2,12 +2,11 @@ import Foundation
 import WebKit
 
 /// Fournit les feuilles de style CSS et les scripts JavaScript (MutationObserver)
-/// pour bloquer les composants addictifs sur chaque plateforme.
+/// pour bloquer les composants addictifs et neutraliser le son automatique.
 public struct ContentBlockerScripts {
     
     // MARK: - Générateur de CSS Global & Spécifique
     
-    /// Génère le bloc CSS complet à injecter au tout début du chargement (.atDocumentStart)
     public static func makeCSS(for platform: SocialPlatform, config: ConfigManager) -> String {
         var rules: [String] = []
         
@@ -75,15 +74,12 @@ public struct ContentBlockerScripts {
         
         if config.hideInstaReels {
             css.append("""
-            /* Masquage de l'icône Reels dans la barre de navigation inférieure et latérale */
+            /* Masquage de l'icône Reels dans la barre de navigation */
             a[href*="/reels/"],
             a[href^="/reels/"],
             svg[aria-label="Reels"],
             svg[aria-label*="Reels"],
-            /* Conteneurs de boutons de navigation */
-            div[role="navigation"] a:has(svg[aria-label="Reels"]),
             div[role="navigation"] a:has(svg[aria-label*="Reels"]),
-            /* Lecteur Reels plein écran */
             div[data-reels-container],
             section:has(video[src*="instagram"]):has(a[href*="/reels/"]) {
                 display: none !important;
@@ -97,7 +93,7 @@ public struct ContentBlockerScripts {
         
         if config.hideInstaExplore {
             css.append("""
-            /* Masquage de l'onglet Explorer (Recherche & Découverte algorithmique) */
+            /* Masquage de l'onglet Explorer */
             a[href*="/explore/"],
             a[href^="/explore/"],
             svg[aria-label="Explorer"],
@@ -106,7 +102,6 @@ public struct ContentBlockerScripts {
             div[role="navigation"] a:has(svg[aria-label="Explorer"]),
             div[role="navigation"] a:has(svg[aria-label="Recherche et exploration"]),
             div[role="navigation"] a:has(svg[aria-label*="Explore"]),
-            /* Grille Explore */
             main[role="main"] div[style*="display: grid"] {
                 display: none !important;
             }
@@ -138,7 +133,7 @@ public struct ContentBlockerScripts {
         
         if config.hideYTShorts {
             css.append("""
-            /* Masquage de l'onglet Shorts dans la barre de navigation (pivot bar) */
+            /* Masquage de l'onglet Shorts dans la barre de navigation */
             ytm-pivot-bar-item-renderer[tab-content-type="shorts"],
             ytm-pivot-bar-item-renderer:has(div.pivot-shorts),
             ytm-pivot-bar-item-renderer:has(a[href*="/shorts"]),
@@ -177,7 +172,7 @@ public struct ContentBlockerScripts {
         
         if config.hideYTRelatedVideos {
             css.append("""
-            /* Masquage des vidéos suggérées sous le lecteur vidéo en cours de lecture */
+            /* Masquage des vidéos suggérées sous le lecteur vidéo */
             ytm-item-section-renderer[section-identifier="related-items"],
             ytm-related-chip-cloud-renderer,
             ytm-single-column-watch-next-results-renderer-contents > ytm-item-section-renderer,
@@ -190,7 +185,7 @@ public struct ContentBlockerScripts {
         
         if config.hideYTComments {
             css.append("""
-            /* Masquage de la section des commentaires */
+            /* Masquage des commentaires */
             ytm-comments-entry-point-header-renderer,
             ytm-comment-section-renderer,
             #comments,
@@ -209,7 +204,7 @@ public struct ContentBlockerScripts {
         var css: [String] = []
         if config.hideTikTokFYP {
             css.append("""
-            /* Masquage du flux For You Page (Pour Toi) algorithmique */
+            /* Masquage du flux For You Page algorithmique */
             [data-e2e="recommend-list-item-container"],
             #main-content-homepage_hot,
             div[class*="DivFeedContainer"],
@@ -229,11 +224,9 @@ public struct ContentBlockerScripts {
         var css: [String] = []
         if config.hideXForYouTab {
             css.append("""
-            /* Masquage de l'onglet algorithmique 'Pour vous' dans la navigation supérieure */
             nav[aria-label*="Fil d'actualité"] div[role="tablist"] > div[role="presentation"]:first-child,
-            nav[aria-label*="Timeline"] div[role="tablist"] > div[role="presentation"]:first-child,
-            div[role="tablist"] > div[role="presentation"]:has(a[href="/home"][aria-selected="true"]:not([href*="following"])) {
-                /* Cible spécifiquement le premier onglet (Pour vous) */
+            nav[aria-label*="Timeline"] div[role="tablist"] > div[role="presentation"]:first-child {
+                display: none !important;
             }
             """)
         }
@@ -242,7 +235,6 @@ public struct ContentBlockerScripts {
     
     // MARK: - Script d'injection CSS au runtime (.atDocumentStart)
     
-    /// Crée un script JS qui injecte une balise <style id="pure-social-injected-style">
     public static func makeCSSInjectionScript(cssContent: String) -> String {
         let escapedCSS = cssContent
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -264,13 +256,12 @@ public struct ContentBlockerScripts {
         """
     }
     
-    // MARK: - Script JS MutationObserver (.atDocumentEnd)
+    // MARK: - Script JS MutationObserver & Neutralisation Audio (.atDocumentEnd)
     
-    /// Script complet de surveillance dynamique du DOM et de routage SPA
     public static func makeMutationObserverScript(for platform: SocialPlatform, config: ConfigManager) -> String {
         return """
         (function() {
-            console.log("[PureSocial] Initialisation du moniteur anti-addiction pour \(platform.rawValue)");
+            console.log("[PureSocial] Moniteur anti-addiction & audio chargé pour \(platform.rawValue)");
             
             var config = {
                 hideInstaReels: \(config.hideInstaReels),
@@ -287,9 +278,27 @@ public struct ContentBlockerScripts {
             var platform = "\(platform.rawValue)";
             var isCleaningScheduled = false;
             
-            // Fonction de nettoyage exécutée à chaque frame disponible
+            // Neutralisation du son automatique des vidéos
+            function silenceAllVideos() {
+                var videos = document.querySelectorAll('video');
+                videos.forEach(function(video) {
+                    video.muted = true;
+                    video.volume = 0;
+                    video.setAttribute('muted', 'true');
+                    video.setAttribute('playsinline', 'true');
+                });
+            }
+            
+            // Empêche le son de démarrer tout seul
+            document.addEventListener('play', function(e) {
+                if (e.target && e.target.tagName === 'VIDEO') {
+                    e.target.muted = true;
+                }
+            }, true);
+            
             function cleanDOM() {
                 isCleaningScheduled = false;
+                silenceAllVideos();
                 
                 try {
                     if (platform === "Instagram") {
@@ -302,7 +311,7 @@ public struct ContentBlockerScripts {
                         cleanX();
                     }
                 } catch (e) {
-                    console.error("[PureSocial] Erreur lors du nettoyage DOM:", e);
+                    console.error("[PureSocial] Erreur DOM:", e);
                 }
             }
             
@@ -315,7 +324,6 @@ public struct ContentBlockerScripts {
             
             // --- INSTAGRAM CLEANER ---
             function cleanInstagram() {
-                // Interception des routes Reels et Explore si l'utilisateur clique dessus
                 var path = window.location.pathname;
                 if (config.hideInstaReels && (path.startsWith("/reels/") || path.startsWith("/reel/"))) {
                     window.location.replace("/direct/inbox/");
@@ -326,7 +334,6 @@ public struct ContentBlockerScripts {
                     return;
                 }
                 
-                // Masquer les boutons Reels et Explore dans les barres d'onglets
                 if (config.hideInstaReels) {
                     document.querySelectorAll('a[href*="/reels/"], svg[aria-label="Reels"]').forEach(function(el) {
                         var navItem = el.closest('div[role="tab"], div[role="listitem"], a');
@@ -341,14 +348,13 @@ public struct ContentBlockerScripts {
                     });
                 }
                 
-                // Si le fil d'actualité est masqué, ajouter un message zen au-dessus du néant
                 if (config.hideInstaMainFeed && path === "/") {
                     var main = document.querySelector('main[role="main"]');
                     if (main && !document.getElementById('pure-social-insta-banner')) {
                         var banner = document.createElement('div');
                         banner.id = 'pure-social-insta-banner';
                         banner.className = 'pure-social-banner';
-                        banner.innerHTML = '<div class="pure-social-banner-title">✨ Mode Essentiel Actif</div><div>Le fil d\\'actualité infini est masqué.<br>Vos Stories et Messages Directs restent 100% accessibles.</div>';
+                        banner.innerHTML = '<div class="pure-social-banner-title">✨ Mode Essentiel Actif</div><div>Le fil infini est masqué pour préserver ton temps.<br>Tes Stories et Messages Directs restent 100% accessibles.</div>';
                         main.appendChild(banner);
                     }
                 }
@@ -358,9 +364,7 @@ public struct ContentBlockerScripts {
             function cleanYouTube() {
                 var path = window.location.pathname;
                 
-                // Rediriger si on tombe sur une URL /shorts/
                 if (config.hideYTShorts && path.startsWith("/shorts/")) {
-                    // Si on a un identifiant de vidéo shorts, on le convertit en vidéo standard
                     var parts = path.split('/');
                     var videoId = parts[2];
                     if (videoId) {
@@ -371,7 +375,6 @@ public struct ContentBlockerScripts {
                     return;
                 }
                 
-                // Supprimer les éléments Shorts dans la navigation et les étagères
                 if (config.hideYTShorts) {
                     var shortsSelectors = [
                         'ytm-pivot-bar-item-renderer[tab-content-type="shorts"]',
@@ -385,16 +388,13 @@ public struct ContentBlockerScripts {
                     });
                 }
                 
-                // Message zen sur la page d'accueil si les recommandations sont masquées
                 if (config.hideYTHomeRecommendations && (path === "/" || path === "")) {
                     var app = document.querySelector('#app') || document.body;
                     if (app && !document.getElementById('pure-social-yt-banner')) {
                         var banner = document.createElement('div');
                         banner.id = 'pure-social-yt-banner';
                         banner.className = 'pure-social-banner';
-                        banner.innerHTML = '<div class="pure-social-banner-title">🎯 YouTube Productif</div><div>Les recommandations d\\'accueil sont masquées.<br>Utilisez la loupe en haut pour rechercher une vidéo intentionnelle.</div>';
-                        
-                        // Insérer après l'en-tête de recherche
+                        banner.innerHTML = '<div class="pure-social-banner-title">🎯 YouTube Intentionnel</div><div>Les flux de recommandations sont masqués.<br>Utilise la recherche pour regarder ce que tu as réellement choisi.</div>';
                         var header = document.querySelector('ytm-mobile-topbar-renderer') || app.firstChild;
                         if (header && header.parentNode) {
                             header.parentNode.insertBefore(banner, header.nextSibling);
@@ -409,52 +409,28 @@ public struct ContentBlockerScripts {
             function cleanTikTok() {
                 if (config.hideTikTokFYP) {
                     var fypItems = document.querySelectorAll('[data-e2e="recommend-list-item-container"], div#main-content-homepage_hot');
-                    fypItems.forEach(function(item) {
-                        item.style.display = 'none';
-                    });
-                    
-                    if (!document.getElementById('pure-social-tiktok-banner')) {
-                        var main = document.querySelector('main') || document.body;
-                        if (main) {
-                            var banner = document.createElement('div');
-                            banner.id = 'pure-social-tiktok-banner';
-                            banner.className = 'pure-social-banner';
-                            banner.innerHTML = '<div class="pure-social-banner-title">🛡️ Mode Consultation Pure</div><div>Le flux algorithmique 'Pour Toi' est désactivé.<br>Consultez uniquement vos créateurs suivis ou vos messages.</div>';
-                            main.prepend(banner);
-                        }
-                    }
+                    fypItems.forEach(function(item) { item.style.display = 'none'; });
                 }
             }
             
-            // --- X (TWITTER) CLEANER ---
+            // --- X CLEANER ---
             function cleanX() {
                 if (config.hideXForYouTab) {
-                    // Si le premier onglet est "Pour vous", on clique automatiquement sur "Abonnements" si présent
                     var tabs = document.querySelectorAll('div[role="tablist"] a[role="tab"]');
                     if (tabs.length >= 2) {
                         var firstTab = tabs[0];
                         var secondTab = tabs[1];
-                        // Si le premier onglet est sélectionné (Pour vous), basculer vers le second (Abonnements)
                         if (firstTab.getAttribute('aria-selected') === 'true') {
                             secondTab.click();
                         }
-                        // Masquer visuellement le premier onglet
                         firstTab.style.display = 'none';
                     }
                 }
             }
             
-            // Observer les modifications DOM continues (Single Page Applications)
-            var observer = new MutationObserver(function(mutations) {
-                scheduleClean();
-            });
+            var observer = new MutationObserver(function() { scheduleClean(); });
+            observer.observe(document.documentElement, { childList: true, subtree: true });
             
-            observer.observe(document.documentElement, {
-                childList: true,
-                subtree: true
-            });
-            
-            // Interception des changements d'URL via pushState / replaceState
             var originalPushState = history.pushState;
             history.pushState = function() {
                 originalPushState.apply(this, arguments);
@@ -468,37 +444,26 @@ public struct ContentBlockerScripts {
             };
             
             window.addEventListener('popstate', scheduleClean);
-            
-            // Premier passage immédiat
             scheduleClean();
         })();
         """
     }
     
-    // MARK: - Génération des WKUserScript pour WKWebViewConfiguration
-    
-    /// Génère la liste des scripts utilisateurs à attacher au contrôleur de contenu
     public static func makeUserScripts(for platform: SocialPlatform, config: ConfigManager) -> [WKUserScript] {
         var scripts: [WKUserScript] = []
         
-        // 1. Injection CSS à .atDocumentStart (élimine tout clignotement)
         let css = makeCSS(for: platform, config: config)
-        let cssScriptSource = makeCSSInjectionScript(cssContent: css)
-        let cssScript = WKUserScript(
-            source: cssScriptSource,
+        scripts.append(WKUserScript(
+            source: makeCSSInjectionScript(cssContent: css),
             injectionTime: .atDocumentStart,
             forMainFrameOnly: false
-        )
-        scripts.append(cssScript)
+        ))
         
-        // 2. Injection MutationObserver à .atDocumentEnd (gère les SPAs dynamiques)
-        let jsSource = makeMutationObserverScript(for: platform, config: config)
-        let jsScript = WKUserScript(
-            source: jsSource,
+        scripts.append(WKUserScript(
+            source: makeMutationObserverScript(for: platform, config: config),
             injectionTime: .atDocumentEnd,
             forMainFrameOnly: false
-        )
-        scripts.append(jsScript)
+        ))
         
         return scripts
     }
