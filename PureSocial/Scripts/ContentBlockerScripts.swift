@@ -2,7 +2,8 @@ import Foundation
 import WebKit
 
 /// Fournit les feuilles de style CSS et les scripts JavaScript (MutationObserver)
-/// pour bloquer les composants addictifs et neutraliser le son automatique.
+/// pour bloquer les composants addictifs, neutraliser le son automatique,
+/// et garantir que les formulaires de connexion (Login) s'affichent toujours correctement.
 public struct ContentBlockerScripts {
     
     // MARK: - Générateur de CSS Global & Spécifique
@@ -20,7 +21,7 @@ public struct ContentBlockerScripts {
             """)
         }
         
-        // 2. Règles spécifiques à la plateforme
+        // 2. Règles chirurgicales spécifiques à la plateforme
         switch platform {
         case .instagram:
             rules.append(makeInstagramCSS(config: config))
@@ -39,9 +40,9 @@ public struct ContentBlockerScripts {
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 32px 16px;
-            margin: 20px auto;
-            max-width: 480px;
+            padding: 24px 16px;
+            margin: 16px auto;
+            max-width: 440px;
             text-align: center;
             background: rgba(128, 128, 128, 0.08);
             border-radius: 16px;
@@ -54,8 +55,8 @@ public struct ContentBlockerScripts {
         }
         .pure-social-banner-title {
             font-weight: 600;
-            font-size: 16px;
-            margin-bottom: 6px;
+            font-size: 15px;
+            margin-bottom: 4px;
             color: #333333;
         }
         @media (prefers-color-scheme: dark) {
@@ -67,14 +68,14 @@ public struct ContentBlockerScripts {
         return rules.joined(separator: "\n\n")
     }
     
-    // MARK: - CSS Instagram
+    // MARK: - CSS Instagram (Préservant absolument l'écran de Login)
     
     private static func makeInstagramCSS(config: ConfigManager) -> String {
         var css: [String] = []
         
         if config.hideInstaReels {
             css.append("""
-            /* Masquage de l'icône Reels dans la barre de navigation */
+            /* Masquage de l'icône Reels dans les barres de navigation */
             a[href*="/reels/"],
             a[href^="/reels/"],
             svg[aria-label="Reels"],
@@ -93,16 +94,14 @@ public struct ContentBlockerScripts {
         
         if config.hideInstaExplore {
             css.append("""
-            /* Masquage de l'onglet Explorer */
+            /* Masquage de l'icône Explorer dans la navigation */
             a[href*="/explore/"],
             a[href^="/explore/"],
             svg[aria-label="Explorer"],
             svg[aria-label="Recherche et exploration"],
             svg[aria-label*="Explore"],
-            div[role="navigation"] a:has(svg[aria-label="Explorer"]),
-            div[role="navigation"] a:has(svg[aria-label="Recherche et exploration"]),
             div[role="navigation"] a:has(svg[aria-label*="Explore"]),
-            main[role="main"] div[style*="display: grid"] {
+            div[role="navigation"] a:has(svg[aria-label*="Recherche"]) {
                 display: none !important;
             }
             """)
@@ -110,10 +109,9 @@ public struct ContentBlockerScripts {
         
         if config.hideInstaMainFeed {
             css.append("""
-            /* Masquage strict des publications du fil principal, tout en préservant la barre des Stories */
-            main[role="main"] article,
-            main article,
-            div[role="presentation"] article {
+            /* Ne masque JAMAIS si la page contient un formulaire de connexion ou si non connecté */
+            body:not(:has(form#loginForm)):not(:has(input[name="username"])) main[role="main"] > section > div > div > div:not(:first-child) article,
+            body:not(:has(form#loginForm)):not(:has(input[name="username"])) main[role="main"] > div > div > article {
                 display: none !important;
                 visibility: hidden !important;
                 height: 0 !important;
@@ -126,14 +124,14 @@ public struct ContentBlockerScripts {
         return css.joined(separator: "\n")
     }
     
-    // MARK: - CSS YouTube Mobile
+    // MARK: - CSS YouTube Mobile (Préservant la barre de recherche et les boutons de connexion)
     
     private static func makeYouTubeCSS(config: ConfigManager) -> String {
         var css: [String] = []
         
         if config.hideYTShorts {
             css.append("""
-            /* Masquage de l'onglet Shorts dans la barre de navigation */
+            /* Masquage de l'onglet Shorts dans la barre pivot inférieure */
             ytm-pivot-bar-item-renderer[tab-content-type="shorts"],
             ytm-pivot-bar-item-renderer:has(div.pivot-shorts),
             ytm-pivot-bar-item-renderer:has(a[href*="/shorts"]),
@@ -141,7 +139,7 @@ public struct ContentBlockerScripts {
             [aria-label*="Shorts"],
             [aria-label*="shorts"],
             
-            /* Étagères et sections Shorts dans l'accueil et la recherche */
+            /* Étagères Shorts dans les recherches et l'accueil */
             ytm-reel-shelf-renderer,
             ytm-rich-section-renderer:has(ytm-reel-shelf-renderer),
             ytm-shorts-lockup-view-model,
@@ -161,10 +159,9 @@ public struct ContentBlockerScripts {
         
         if config.hideYTHomeRecommendations {
             css.append("""
-            /* Masquage des flux de recommandations d'accueil sur m.youtube.com */
-            ytm-browse[page-type="home"] ytm-section-list-renderer,
-            ytm-browse[page-type="home"] ytm-rich-grid-renderer,
-            ytm-browse[page-type="home"] #app ytm-item-section-renderer {
+            /* Masque uniquement le contenu vidéo de l'accueil, en laissant visible le header et la loupe */
+            ytm-browse[page-type="home"] ytm-section-list-renderer .item-section-renderer-contents,
+            ytm-browse[page-type="home"] ytm-rich-grid-renderer {
                 display: none !important;
             }
             """)
@@ -172,7 +169,7 @@ public struct ContentBlockerScripts {
         
         if config.hideYTRelatedVideos {
             css.append("""
-            /* Masquage des vidéos suggérées sous le lecteur vidéo */
+            /* Masquage des vidéos suggérées sous le lecteur */
             ytm-item-section-renderer[section-identifier="related-items"],
             ytm-related-chip-cloud-renderer,
             ytm-single-column-watch-next-results-renderer-contents > ytm-item-section-renderer,
@@ -198,19 +195,15 @@ public struct ContentBlockerScripts {
         return css.joined(separator: "\n")
     }
     
-    // MARK: - CSS TikTok
+    // MARK: - CSS TikTok (Ciblé sans masquer le conteneur principal)
     
     private static func makeTikTokCSS(config: ConfigManager) -> String {
         var css: [String] = []
         if config.hideTikTokFYP {
             css.append("""
-            /* Masquage du flux For You Page algorithmique */
-            [data-e2e="recommend-list-item-container"],
-            #main-content-homepage_hot,
-            div[class*="DivFeedContainer"],
-            div[class*="DivThreeColumnContainer"],
-            div[data-e2e="feed-for-you"],
-            div[class*="DivVideoFeed"] {
+            /* Masquage ciblé des éléments de vidéos recommandées */
+            div[data-e2e="recommend-list-item-container"],
+            div[data-e2e="feed-for-you"] > div:not(:first-child) {
                 display: none !important;
             }
             """)
@@ -233,7 +226,7 @@ public struct ContentBlockerScripts {
         return css.joined(separator: "\n")
     }
     
-    // MARK: - Script d'injection CSS au runtime (.atDocumentStart)
+    // MARK: - Script d'injection CSS sécurisé
     
     public static func makeCSSInjectionScript(cssContent: String) -> String {
         let escapedCSS = cssContent
@@ -243,15 +236,27 @@ public struct ContentBlockerScripts {
         
         return """
         (function() {
-            var existing = document.getElementById('pure-social-injected-style');
-            if (existing) {
-                existing.textContent = `\(escapedCSS)`;
-                return;
+            function applyStyle() {
+                var target = document.head || document.documentElement;
+                if (!target) {
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', applyStyle);
+                    } else {
+                        setTimeout(applyStyle, 10);
+                    }
+                    return;
+                }
+                var existing = document.getElementById('pure-social-injected-style');
+                if (existing) {
+                    existing.textContent = `\(escapedCSS)`;
+                    return;
+                }
+                var style = document.createElement('style');
+                style.id = 'pure-social-injected-style';
+                style.textContent = `\(escapedCSS)`;
+                target.appendChild(style);
             }
-            var style = document.createElement('style');
-            style.id = 'pure-social-injected-style';
-            style.textContent = `\(escapedCSS)`;
-            (document.head || document.documentElement).appendChild(style);
+            applyStyle();
         })();
         """
     }
@@ -261,7 +266,7 @@ public struct ContentBlockerScripts {
     public static func makeMutationObserverScript(for platform: SocialPlatform, config: ConfigManager) -> String {
         return """
         (function() {
-            console.log("[PureSocial] Moniteur anti-addiction & audio chargé pour \(platform.rawValue)");
+            console.log("[PureSocial] Initialisation pour \(platform.rawValue)");
             
             var config = {
                 hideInstaReels: \(config.hideInstaReels),
@@ -289,7 +294,6 @@ public struct ContentBlockerScripts {
                 });
             }
             
-            // Empêche le son de démarrer tout seul
             document.addEventListener('play', function(e) {
                 if (e.target && e.target.tagName === 'VIDEO') {
                     e.target.muted = true;
@@ -325,15 +329,13 @@ public struct ContentBlockerScripts {
             // --- INSTAGRAM CLEANER ---
             function cleanInstagram() {
                 var path = window.location.pathname;
-                if (config.hideInstaReels && (path.startsWith("/reels/") || path.startsWith("/reel/"))) {
-                    window.location.replace("/direct/inbox/");
-                    return;
-                }
-                if (config.hideInstaExplore && path.startsWith("/explore/")) {
-                    window.location.replace("/");
+                
+                // Si l'utilisateur est sur la page de connexion, on ne touche à RIEN !
+                if (path.includes("/accounts/") || document.querySelector('form#loginForm') || document.querySelector('input[name="username"]')) {
                     return;
                 }
                 
+                // Masquer les boutons Reels et Explore dans les barres de navigation
                 if (config.hideInstaReels) {
                     document.querySelectorAll('a[href*="/reels/"], svg[aria-label="Reels"]').forEach(function(el) {
                         var navItem = el.closest('div[role="tab"], div[role="listitem"], a');
@@ -348,13 +350,14 @@ public struct ContentBlockerScripts {
                     });
                 }
                 
+                // Bandeau zen si le fil infini est masqué
                 if (config.hideInstaMainFeed && path === "/") {
                     var main = document.querySelector('main[role="main"]');
                     if (main && !document.getElementById('pure-social-insta-banner')) {
                         var banner = document.createElement('div');
                         banner.id = 'pure-social-insta-banner';
                         banner.className = 'pure-social-banner';
-                        banner.innerHTML = '<div class="pure-social-banner-title">✨ Mode Essentiel Actif</div><div>Le fil infini est masqué pour préserver ton temps.<br>Tes Stories et Messages Directs restent 100% accessibles.</div>';
+                        banner.innerHTML = '<div class="pure-social-banner-title">✨ Mode Essentiel Actif</div><div>Le fil infini est masqué pour préserver ton attention.<br>Tes Stories et Messages Directs restent 100% accessibles.</div>';
                         main.appendChild(banner);
                     }
                 }
@@ -389,12 +392,12 @@ public struct ContentBlockerScripts {
                 }
                 
                 if (config.hideYTHomeRecommendations && (path === "/" || path === "")) {
-                    var app = document.querySelector('#app') || document.body;
+                    var app = document.querySelector('ytm-browse[page-type="home"]') || document.body;
                     if (app && !document.getElementById('pure-social-yt-banner')) {
                         var banner = document.createElement('div');
                         banner.id = 'pure-social-yt-banner';
                         banner.className = 'pure-social-banner';
-                        banner.innerHTML = '<div class="pure-social-banner-title">🎯 YouTube Intentionnel</div><div>Les flux de recommandations sont masqués.<br>Utilise la recherche pour regarder ce que tu as réellement choisi.</div>';
+                        banner.innerHTML = '<div class="pure-social-banner-title">🎯 YouTube Intentionnel</div><div>Les recommandations d\\'accueil sont masquées.<br>Utilise la loupe de recherche ci-dessus pour chercher ta vidéo.</div>';
                         var header = document.querySelector('ytm-mobile-topbar-renderer') || app.firstChild;
                         if (header && header.parentNode) {
                             header.parentNode.insertBefore(banner, header.nextSibling);
@@ -408,7 +411,7 @@ public struct ContentBlockerScripts {
             // --- TIKTOK CLEANER ---
             function cleanTikTok() {
                 if (config.hideTikTokFYP) {
-                    var fypItems = document.querySelectorAll('[data-e2e="recommend-list-item-container"], div#main-content-homepage_hot');
+                    var fypItems = document.querySelectorAll('div[data-e2e="recommend-list-item-container"]');
                     fypItems.forEach(function(item) { item.style.display = 'none'; });
                 }
             }
@@ -428,8 +431,11 @@ public struct ContentBlockerScripts {
                 }
             }
             
-            var observer = new MutationObserver(function() { scheduleClean(); });
-            observer.observe(document.documentElement, { childList: true, subtree: true });
+            var targetRoot = document.documentElement || document.body;
+            if (targetRoot) {
+                var observer = new MutationObserver(function() { scheduleClean(); });
+                observer.observe(targetRoot, { childList: true, subtree: true });
+            }
             
             var originalPushState = history.pushState;
             history.pushState = function() {

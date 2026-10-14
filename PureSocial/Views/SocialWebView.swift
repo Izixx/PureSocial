@@ -6,9 +6,10 @@ public final class WebViewNavigationModel: ObservableObject {
     @Published public var canGoBack: Bool = false
     @Published public var canGoForward: Bool = false
     @Published public var estimatedProgress: Double = 0.0
-    @Published public var isLoading: Bool = false
+    @Published public var isLoading: Bool = true
     @Published public var currentTitle: String = ""
     @Published public var currentURL: URL? = nil
+    @Published public var hasFinishedInitialLoad: Bool = false
     
     fileprivate var actionGoBack: (() -> Void)?
     fileprivate var actionGoForward: (() -> Void)?
@@ -50,10 +51,10 @@ public struct SocialWebView: UIViewRepresentable {
         configuration.websiteDataStore = WKWebsiteDataStore.default()
         configuration.allowsInlineMediaPlayback = true
         
-        // REQUIS : Bloque le son et la lecture automatique des vidéos sans interaction utilisateur !
+        // Bloque le son automatique sans interaction utilisateur
         configuration.mediaTypesRequiringUserActionForPlayback = .all
         
-        // Injection des scripts de blocage et de silence audio
+        // Injection des scripts de blocage
         let userContentController = WKUserContentController()
         let scripts = ContentBlockerScripts.makeUserScripts(for: platform, config: config)
         for script in scripts {
@@ -67,7 +68,12 @@ public struct SocialWebView: UIViewRepresentable {
         webView.allowsBackForwardNavigationGestures = true
         webView.customUserAgent = config.customUserAgent
         
-        // Support plein écran immersif sans décalage
+        // Évite tout clignotement ou écran noir opaque
+        webView.isOpaque = false
+        webView.backgroundColor = .systemBackground
+        webView.scrollView.backgroundColor = .systemBackground
+        
+        // Support plein écran
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         
         // Pull-to-refresh natif discret
@@ -89,7 +95,6 @@ public struct SocialWebView: UIViewRepresentable {
             webView.customUserAgent = config.customUserAgent
         }
         
-        // Mise à jour dynamique du CSS sans rechargement
         let updatedCSS = ContentBlockerScripts.makeCSS(for: platform, config: config)
         let updateScript = ContentBlockerScripts.makeCSSInjectionScript(cssContent: updatedCSS)
         webView.evaluateJavaScript(updateScript, completionHandler: nil)
@@ -118,6 +123,7 @@ public struct SocialWebView: UIViewRepresentable {
                     self?.parent.navigationModel.isLoading = view.isLoading
                     if !view.isLoading {
                         view.scrollView.refreshControl?.endRefreshing()
+                        self?.parent.navigationModel.hasFinishedInitialLoad = true
                     }
                 }
             })
@@ -185,7 +191,23 @@ public struct SocialWebView: UIViewRepresentable {
             let host = url.host?.lowercased() ?? ""
             let path = url.path.lowercased()
             
-            // 1. Filtrage strict Instagram (Reels & Explore)
+            // RÈGLE PRIORITAIRE : Ne JAMAIS bloquer ou rediriger les pages d'authentification et de connexion !
+            let isAuthFlow = path.contains("/login") ||
+                             path.contains("/accounts") ||
+                             path.contains("/signup") ||
+                             path.contains("/signin") ||
+                             path.contains("/auth") ||
+                             path.contains("/checkpoint") ||
+                             path.contains("/challenge") ||
+                             host.contains("accounts.google.com") ||
+                             host.contains("appleid.apple.com")
+            
+            if isAuthFlow {
+                decisionHandler(.allow)
+                return
+            }
+            
+            // Filtrage ciblé Instagram Reels uniquement (sans toucher à l'écran de Login)
             if host.contains("instagram.com") {
                 if parent.config.hideInstaReels && (path.contains("/reels/") || path.hasPrefix("/reel/")) {
                     decisionHandler(.cancel)
@@ -194,16 +216,9 @@ public struct SocialWebView: UIViewRepresentable {
                     }
                     return
                 }
-                if parent.config.hideInstaExplore && path.hasPrefix("/explore/") {
-                    decisionHandler(.cancel)
-                    if let homeURL = URL(string: "https://www.instagram.com/") {
-                        webView.load(URLRequest(url: homeURL))
-                    }
-                    return
-                }
             }
             
-            // 2. Filtrage strict YouTube Shorts
+            // Filtrage ciblé YouTube Shorts -> Conversion en vidéo classique
             if host.contains("youtube.com") {
                 if parent.config.hideYTShorts && path.hasPrefix("/shorts/") {
                     let videoID = url.lastPathComponent
@@ -217,7 +232,7 @@ public struct SocialWebView: UIViewRepresentable {
                 }
             }
             
-            // 3. Gestion des liens popup ou target="_blank"
+            // Liens externes ou cibles _blank : maintien dans la même vue
             if navigationAction.targetFrame == nil {
                 webView.load(navigationAction.request)
                 decisionHandler(.cancel)
@@ -231,6 +246,20 @@ public struct SocialWebView: UIViewRepresentable {
             let updatedCSS = ContentBlockerScripts.makeCSS(for: parent.platform, config: parent.config)
             let script = ContentBlockerScripts.makeCSSInjectionScript(cssContent: updatedCSS)
             webView.evaluateJavaScript(script, completionHandler: nil)
+        }
+        
+        public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            parent.navigationModel.isLoading = false
+            print("[PureSocial] Navigation failed: \(error.localizedDescription)")
+        }
+        
+        public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            parent.navigationModel.isLoading = false
+            print("[PureSocial] Provisional navigation failed: \(error.localizedDescription)")
+        }
+        
+        public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            webView.reload()
         }
         
         public func webView(
