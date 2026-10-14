@@ -1,0 +1,28 @@
+name: PureSocial
+options:
+  bundleIdPrefix: com.antigravity
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "15.0"
+settings:
+  base:
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    CODE_SIGNING_ALLOWED: "NO"
+    CODE_SIGN_IDENTITY: ""
+targets:
+  PureSocial:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: PureSocial
+    info:
+      path: PureSocial/Info.plist
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.antigravity.puresocial
+      INFOPLIST_FILE: PureSocial/Info.plist
+      CODE_SIGNING_ALLOWED: "NO"
+      CODE_SIGN_IDENTITY: ""
+      ENABLE_BITCODE: "NO"
