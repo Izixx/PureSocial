@@ -2,8 +2,8 @@ import Foundation
 import WebKit
 
 /// Fournit les feuilles de style CSS et les scripts JavaScript (MutationObserver)
-/// pour bloquer les composants addictifs, neutraliser le son automatique,
-/// et garantir que chaque application se charge instantanément sans écran noir.
+/// pour bloquer les composants addictifs (Reels dans le fil, Shorts, Explorer),
+/// neutraliser le son automatique, et éliminer les bannières intrusives.
 public struct ContentBlockerScripts {
     
     // MARK: - Générateur de CSS Global & Spécifique
@@ -36,18 +36,45 @@ public struct ContentBlockerScripts {
         return rules.joined(separator: "\n\n")
     }
     
-    // MARK: - CSS Instagram (Ciblé : supprime Reels et Explore SANS casser la page)
+    // MARK: - CSS Instagram (Suppression des Reels dans le fil, Explore, et bannières)
     
     private static func makeInstagramCSS(config: ConfigManager) -> String {
         var css: [String] = []
         
+        // Masquage strict de la bannière intrusive "Use the app" / "Utiliser l'application"
+        css.append("""
+        /* Masquage de la bannière 'Use the app' */
+        div[role="dialog"]:has(a[href*="instagram.com/download"]),
+        div[style*="fixed"]:has(a[href*="apple.com"]),
+        div:has(> a[href*="app.apps.apple.com"]) {
+            display: none !important;
+            visibility: hidden !important;
+            height: 0 !important;
+        }
+        """)
+        
         if config.hideInstaReels {
             css.append("""
-            /* Masquage de l'icône Reels dans les barres de navigation */
+            /* 1. Masquage des publications Reels et Vidéos dans le fil d'actualité */
+            article:has(video),
+            article:has(a[href*="/reel/"]),
+            article:has(a[href*="/reels/"]),
+            div[data-tracking-duration-id*="reels"],
+            div:has(> a[href*="/reel/"]) {
+                display: none !important;
+                visibility: hidden !important;
+                height: 0 !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow: hidden !important;
+            }
+            
+            /* 2. Masquage de l'icône Reels dans la barre de navigation */
             a[href*="/reels/"],
             a[href^="/reels/"],
             svg[aria-label*="Reels"],
-            svg[aria-label*="reels"] {
+            svg[aria-label*="reels"],
+            svg[aria-label*="Clips"] {
                 display: none !important;
                 visibility: hidden !important;
                 pointer-events: none !important;
@@ -69,6 +96,20 @@ public struct ContentBlockerScripts {
                 display: none !important;
                 visibility: hidden !important;
                 pointer-events: none !important;
+            }
+            """)
+        }
+        
+        if config.hideInstaMainFeed {
+            css.append("""
+            /* Mode Essentiel : Masquer tous les articles du fil sous les Stories (uniquement quand connecté) */
+            body:not(:has(input[type="password"])) main[role="main"] article,
+            body:not(:has(input[type="password"])) main article {
+                display: none !important;
+                visibility: hidden !important;
+                height: 0 !important;
+                margin: 0 !important;
+                padding: 0 !important;
             }
             """)
         }
@@ -179,7 +220,7 @@ public struct ContentBlockerScripts {
         """
     }
     
-    // MARK: - Script JS MutationObserver & Neutralisation Audio (.atDocumentEnd)
+    // MARK: - Script JS MutationObserver & Nettoyage Dynamique (.atDocumentEnd)
     
     public static func makeMutationObserverScript(for platform: SocialPlatform, config: ConfigManager) -> String {
         return """
@@ -201,17 +242,58 @@ public struct ContentBlockerScripts {
                 }
             }, true);
             
-            silenceVideos();
-            
-            // Masquage dynamique des icônes Reels / Shorts si ajoutées dynamiquement
-            var observer = new MutationObserver(function() {
+            function cleanDOM() {
                 silenceVideos();
                 
-                if ("\(platform.rawValue)" === "YouTube" && \(config.hideYTShorts)) {
+                var platform = "\(platform.rawValue)";
+                
+                // Nettoyage Instagram
+                if (platform === "Instagram") {
+                    // Masquer la bannière "Use the app"
+                    document.querySelectorAll('div, section').forEach(function(el) {
+                        if (el.innerText && el.innerText.trim().startsWith('Use the app') && el.children.length < 5) {
+                            el.style.display = 'none';
+                        }
+                    });
+                    
+                    // Masquer les articles Reels dans le fil
+                    if (\(config.hideInstaReels)) {
+                        document.querySelectorAll('article').forEach(function(article) {
+                            if (article.querySelector('video') || article.querySelector('a[href*="/reel/"]') || article.querySelector('a[href*="/reels/"]')) {
+                                article.style.display = 'none';
+                            }
+                        });
+                        
+                        document.querySelectorAll('a[href*="/reels/"], svg[aria-label*="Reels"], svg[aria-label*="reels"]').forEach(function(el) {
+                            var btn = el.closest('a, div[role="tab"], div[role="listitem"]');
+                            if (btn) btn.style.display = 'none';
+                        });
+                    }
+                    
+                    // Si mode masquer tout le fil d'actualité actif
+                    if (\(config.hideInstaMainFeed) && window.location.pathname === "/") {
+                        var isLoginPage = !!document.querySelector('input[type="password"]');
+                        if (!isLoginPage) {
+                            document.querySelectorAll('article').forEach(function(article) {
+                                article.style.display = 'none';
+                            });
+                        }
+                    }
+                }
+                
+                // Nettoyage YouTube
+                if (platform === "YouTube" && \(config.hideYTShorts)) {
                     document.querySelectorAll('ytm-pivot-bar-item-renderer[tab-content-type="shorts"], ytm-reel-shelf-renderer').forEach(function(el) {
                         el.remove();
                     });
                 }
+            }
+            
+            cleanDOM();
+            
+            // Observer les nouveaux éléments ajoutés au DOM
+            var observer = new MutationObserver(function() {
+                cleanDOM();
             });
             
             if (document.body) {

@@ -2,7 +2,8 @@ import SwiftUI
 
 /// Vue plein écran immersive affichant le réseau social sélectionné
 /// sans aucune barre de navigation supérieure, reproduisant l'expérience de l'application native.
-/// Fournit une pilule flottante déplaçable pour revenir à l'accueil à tout moment.
+/// Respecte la zone sûre supérieure (Safe Area) pour ne pas masquer les Messages Directs (DM),
+/// et fournit un bouton bulle flottant compact déplaçable (AssistiveTouch style) qui ne bloque aucun onglet.
 public struct ImmersiveSocialView: View {
     public let platform: SocialPlatform
     @ObservedObject public var config: ConfigManager
@@ -10,8 +11,8 @@ public struct ImmersiveSocialView: View {
     
     @StateObject private var navModel = WebViewNavigationModel()
     
-    // Position du bouton flottant (par défaut en bas à droite)
-    @State private var floatingButtonOffset: CGSize = .zero
+    // Position du bouton bulle flottant (par défaut sur le bord droit au centre vertical)
+    @State private var floatingButtonOffset: CGSize = CGSize(width: 0, height: -60)
     @State private var dragOffset: CGSize = .zero
     
     public init(
@@ -26,16 +27,17 @@ public struct ImmersiveSocialView: View {
     
     public var body: some View {
         ZStack {
-            // Fond adaptatif clair/sombre
+            // Fond adaptatif
             Color(UIColor.systemBackground).ignoresSafeArea()
             
-            // WKWebView pleine page affichée immédiatement sans aucun écran de masquage
+            // WKWebView respectant la zone supérieure (Notch / Dynamic Island) pour libérer les Messages (DM)
+            // et ignorant uniquement le bas pour une immersion totale
             SocialWebView(
                 platform: platform,
                 config: config,
                 navigationModel: navModel
             )
-            .edgesIgnoringSafeArea(.all)
+            .ignoresSafeArea(.all, edges: .bottom)
             
             // Barre de progression fine au sommet pendant le chargement
             if navModel.isLoading {
@@ -45,7 +47,6 @@ public struct ImmersiveSocialView: View {
                         .frame(height: 3)
                     Spacer()
                 }
-                .ignoresSafeArea()
             }
             
             // Affichage d'un message clair en cas d'erreur réseau
@@ -87,13 +88,14 @@ public struct ImmersiveSocialView: View {
                 .padding(.horizontal, 24)
             }
             
-            // MARK: - Bouton Flottant Ingénieux "Retour Accueil"
+            // MARK: - Bouton Bulle Flottant Compact (Style AssistiveTouch)
+            // Positionné sur la tranche latérale pour ne jamais masquer les onglets de compte ou messages
             VStack {
                 Spacer()
                 HStack {
                     Spacer()
                     
-                    floatingControlPill
+                    smartFloatingButton
                         .offset(x: floatingButtonOffset.width + dragOffset.width,
                                 y: floatingButtonOffset.height + dragOffset.height)
                         .gesture(
@@ -108,63 +110,56 @@ public struct ImmersiveSocialView: View {
                                 }
                         )
                 }
-                .padding(.trailing, 16)
-                .padding(.bottom, 24)
+                .padding(.trailing, 12)
+                .padding(.bottom, 120) // Positionné au-dessus de la barre d'onglets inférieure
             }
         }
     }
     
-    // MARK: - Pilule Flottante Déplaçable
-    private var floatingControlPill: some View {
-        HStack(spacing: 12) {
-            // Bouton Retour Accueil PureSocial
+    // MARK: - Bouton Bulle Compact & Rétractable
+    private var smartFloatingButton: some View {
+        Menu {
+            // Option 1 : Retour Accueil immédiat
             Button(action: onReturnHome) {
-                HStack(spacing: 6) {
-                    Image(systemName: "house.fill")
-                        .font(.system(size: 15, weight: .bold))
-                    Text("Accueil")
-                        .font(.system(size: 13, weight: .bold))
-                }
-                .foregroundColor(.primary)
+                Label("Accueil PureSocial", systemImage: "house.fill")
             }
             
-            Divider()
-                .frame(height: 14)
-            
-            // Bascule Rapide Niveaux de Gris (Grayscale)
+            // Option 2 : Bascule Niveaux de Gris
             Button(action: {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     config.grayscaleMode.toggle()
                 }
             }) {
-                Image(systemName: config.grayscaleMode ? "circle.lefthalf.filled" : "circle.dashed")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(config.grayscaleMode ? .primary : .secondary)
+                Label(
+                    config.grayscaleMode ? "Désactiver Noir & Blanc" : "Activer Noir & Blanc",
+                    systemImage: config.grayscaleMode ? "circle.lefthalf.filled" : "circle.dashed"
+                )
             }
             
-            // Menu d'actions d'appoint (Rafraîchir / Page précédente)
-            Menu {
-                if navModel.canGoBack {
-                    Button(action: { navModel.goBack() }) {
-                        Label("Page précédente", systemImage: "chevron.backward")
-                    }
-                }
-                Button(action: { navModel.reload() }) {
-                    Label("Actualiser", systemImage: "arrow.clockwise")
-                }
-                Button(action: { navModel.load(url: platform.initialURL) }) {
-                    Label("Recharger la page d'accueil", systemImage: "arrow.counterclockwise")
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.secondary)
+            // Option 3 : Actualiser
+            Button(action: { navModel.reload() }) {
+                Label("Actualiser la page", systemImage: "arrow.clockwise")
             }
+            
+            if navModel.canGoBack {
+                Button(action: { navModel.goBack() }) {
+                    Label("Page précédente", systemImage: "chevron.backward")
+                }
+            }
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(.ultraThinMaterial)
+                    .frame(width: 48, height: 48)
+                    .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
+                
+                Image(systemName: "house.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.primary)
+            }
+        } primaryAction: {
+            // Un tap direct retourne immédiatement à l'accueil
+            onReturnHome()
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
-        .clipShape(Capsule())
-        .shadow(color: Color.black.opacity(0.18), radius: 10, x: 0, y: 5)
     }
 }
