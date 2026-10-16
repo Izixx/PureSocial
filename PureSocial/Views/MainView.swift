@@ -10,7 +10,7 @@ public struct MainView: View {
     // Plateforme active (si nil, l'utilisateur est sur l'écran d'accueil)
     @State private var activePlatform: SocialPlatform? = nil
     
-    // États modaux
+    // États de contrôle
     @State private var showingSettings: Bool = false
     @State private var showingFriction: Bool = false
     @State private var pendingPlatform: SocialPlatform? = nil
@@ -28,8 +28,27 @@ public struct MainView: View {
                     isRedoingQuiz = false
                 }
                 .transition(.opacity)
+                .zIndex(20)
             } else {
-                // 2. Si aucune plateforme n'est ouverte : Affichage de l'Écran d'Accueil Hub
+                // 2. Hub d'Accueil principal
+                HomeHubView(
+                    config: config,
+                    onSelectPlatform: { platform in
+                        handlePlatformSelection(platform)
+                    },
+                    onOpenSettings: {
+                        showingSettings = true
+                    },
+                    onRestartQuiz: {
+                        withAnimation {
+                            isRedoingQuiz = true
+                        }
+                    }
+                )
+                .opacity(activePlatform == nil ? 1 : 0)
+                .allowsHitTesting(activePlatform == nil && !showingFriction)
+                
+                // 3. Application immersive active (Plein écran bord à bord)
                 if let platform = activePlatform {
                     ImmersiveSocialView(platform: platform, config: config) {
                         withAnimation(.easeInOut(duration: 0.25)) {
@@ -37,44 +56,31 @@ public struct MainView: View {
                         }
                     }
                     .transition(.opacity)
-                } else {
-                    HomeHubView(
-                        config: config,
-                        onSelectPlatform: { platform in
-                            handlePlatformSelection(platform)
+                    .zIndex(5)
+                }
+                
+                // 4. Écran de pause / friction intentionnelle (In-line ZStack : Zéro bug UIKit modal)
+                if showingFriction, let targetPlatform = pendingPlatform {
+                    FrictionView(
+                        platform: targetPlatform,
+                        durationSeconds: config.frictionDurationSeconds,
+                        onProceed: {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                activePlatform = targetPlatform
+                                pendingPlatform = nil
+                                showingFriction = false
+                            }
                         },
-                        onOpenSettings: {
-                            showingSettings = true
-                        },
-                        onRestartQuiz: {
-                            withAnimation {
-                                isRedoingQuiz = true
+                        onCancel: {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                pendingPlatform = nil
+                                showingFriction = false
                             }
                         }
                     )
                     .transition(.opacity)
+                    .zIndex(15)
                 }
-            }
-        }
-        // Écran de friction intentionnelle avant d'ouvrir un réseau
-        .fullScreenCover(isPresented: $showingFriction) {
-            if let targetPlatform = pendingPlatform {
-                FrictionView(
-                    platform: targetPlatform,
-                    durationSeconds: config.frictionDurationSeconds,
-                    onProceed: {
-                        showingFriction = false
-                        // Léger délai pour permettre la fermeture propre de la vue modale
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                            activePlatform = targetPlatform
-                            pendingPlatform = nil
-                        }
-                    },
-                    onCancel: {
-                        showingFriction = false
-                        pendingPlatform = nil
-                    }
-                )
             }
         }
         // Panneau de réglages
@@ -86,7 +92,9 @@ public struct MainView: View {
     private func handlePlatformSelection(_ platform: SocialPlatform) {
         if config.intentionalFrictionEnabled {
             pendingPlatform = platform
-            showingFriction = true
+            withAnimation(.easeInOut(duration: 0.25)) {
+                showingFriction = true
+            }
         } else {
             withAnimation(.easeInOut(duration: 0.25)) {
                 activePlatform = platform

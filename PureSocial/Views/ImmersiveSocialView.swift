@@ -29,14 +29,13 @@ public struct ImmersiveSocialView: View {
             // Fond adaptatif clair/sombre
             Color(UIColor.systemBackground).ignoresSafeArea()
             
-            // WKWebView pleine page affichée immédiatement sans écran de masquage
+            // WKWebView pleine page affichée immédiatement sans aucun écran de masquage
             SocialWebView(
                 platform: platform,
                 config: config,
                 navigationModel: navModel
             )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .ignoresSafeArea()
+            .edgesIgnoringSafeArea(.all)
             
             // Barre de progression fine au sommet pendant le chargement
             if navModel.isLoading {
@@ -47,6 +46,45 @@ public struct ImmersiveSocialView: View {
                     Spacer()
                 }
                 .ignoresSafeArea()
+            }
+            
+            // Affichage d'un message clair en cas d'erreur réseau
+            if let error = navModel.loadError {
+                VStack(spacing: 16) {
+                    Image(systemName: "wifi.exclamationmark")
+                        .font(.system(size: 48))
+                        .foregroundColor(.orange)
+                    
+                    Text("Impossible de joindre \(platform.rawValue)")
+                        .font(.headline)
+                        .fontWeight(.bold)
+                    
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                    
+                    Button(action: {
+                        navModel.reload()
+                    }) {
+                        HStack {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Réessayer")
+                                .fontWeight(.semibold)
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 12)
+                        .background(platform.themeColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                    }
+                }
+                .padding(24)
+                .background(Color(UIColor.secondarySystemBackground))
+                .cornerRadius(20)
+                .shadow(radius: 10)
+                .padding(.horizontal, 24)
             }
             
             // MARK: - Bouton Flottant Ingénieux "Retour Accueil"

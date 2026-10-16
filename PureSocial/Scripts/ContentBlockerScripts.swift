@@ -46,9 +46,8 @@ public struct ContentBlockerScripts {
             /* Masquage de l'icône Reels dans les barres de navigation */
             a[href*="/reels/"],
             a[href^="/reels/"],
-            svg[aria-label="Reels"],
             svg[aria-label*="Reels"],
-            div[role="navigation"] a:has(svg[aria-label*="Reels"]) {
+            svg[aria-label*="reels"] {
                 display: none !important;
                 visibility: hidden !important;
                 pointer-events: none !important;
@@ -61,10 +60,12 @@ public struct ContentBlockerScripts {
             /* Masquage de l'icône Explorer dans la navigation */
             a[href*="/explore/"],
             a[href^="/explore/"],
-            svg[aria-label="Explorer"],
-            svg[aria-label="Recherche et exploration"],
+            svg[aria-label*="Explorer"],
+            svg[aria-label*="explorer"],
+            svg[aria-label*="Recherche et exploration"],
             svg[aria-label*="Explore"],
-            div[role="navigation"] a:has(svg[aria-label*="Explore"]) {
+            svg[aria-label*="explore"],
+            svg[aria-label*="Recherche"] {
                 display: none !important;
                 visibility: hidden !important;
                 pointer-events: none !important;

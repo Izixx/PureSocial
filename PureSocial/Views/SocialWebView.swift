@@ -9,6 +9,7 @@ public final class WebViewNavigationModel: ObservableObject {
     @Published public var isLoading: Bool = false
     @Published public var currentTitle: String = ""
     @Published public var currentURL: URL? = nil
+    @Published public var loadError: String? = nil
     
     fileprivate var actionGoBack: (() -> Void)?
     fileprivate var actionGoForward: (() -> Void)?
@@ -19,8 +20,14 @@ public final class WebViewNavigationModel: ObservableObject {
     
     public func goBack() { actionGoBack?() }
     public func goForward() { actionGoForward?() }
-    public func reload() { actionReload?() }
-    public func load(url: URL) { actionLoadURL?(url) }
+    public func reload() {
+        loadError = nil
+        actionReload?()
+    }
+    public func load(url: URL) {
+        loadError = nil
+        actionLoadURL?(url)
+    }
 }
 
 /// Wrapper UIViewRepresentable encapsulant WKWebView en plein écran immersif
@@ -50,8 +57,9 @@ public struct SocialWebView: UIViewRepresentable {
         configuration.websiteDataStore = WKWebsiteDataStore.default()
         configuration.allowsInlineMediaPlayback = true
         
-        // Bloque le son automatique sans interaction utilisateur
-        configuration.mediaTypesRequiringUserActionForPlayback = .all
+        // CRITIQUE : Laisser [] pour que les lecteurs vidéo React/HTML5 (Instagram, TikTok)
+        // ne crashent pas avec "NotAllowedError", le son étant coupé par script JS (video.muted = true)
+        configuration.mediaTypesRequiringUserActionForPlayback = []
         
         // Injection des scripts de blocage
         let userContentController = WKUserContentController()
@@ -61,13 +69,19 @@ public struct SocialWebView: UIViewRepresentable {
         }
         configuration.userContentController = userContentController
         
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        // Initialiser avec la taille de l'écran pour éviter le bug de viewport 0x0
+        let frame = UIScreen.main.bounds
+        let webView = WKWebView(frame: frame, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
-        webView.customUserAgent = config.customUserAgent
         
-        // Rendu immédiat et fond système propre
+        // Si aucun User-Agent personnalisé n'est forcé, utiliser le User-Agent standard Safari
+        if !config.customUserAgent.isEmpty {
+            webView.customUserAgent = config.customUserAgent
+        }
+        
+        // Fond blanc/système pour éviter tout artefact noir
         webView.backgroundColor = .systemBackground
         webView.scrollView.backgroundColor = .systemBackground
         
@@ -89,11 +103,11 @@ public struct SocialWebView: UIViewRepresentable {
     }
     
     public func updateUIView(_ webView: WKWebView, context: Context) {
-        if webView.customUserAgent != config.customUserAgent {
+        if !config.customUserAgent.isEmpty && webView.customUserAgent != config.customUserAgent {
             webView.customUserAgent = config.customUserAgent
         }
         
-        // N'exécute le CSS dynamique que si la page est déjà chargée
+        // N'exécute le CSS dynamique que si la page est déjà prête
         if webView.url != nil && !webView.isLoading {
             let updatedCSS = ContentBlockerScripts.makeCSS(for: platform, config: config)
             let updateScript = ContentBlockerScripts.makeCSSInjectionScript(cssContent: updatedCSS)
@@ -188,7 +202,7 @@ public struct SocialWebView: UIViewRepresentable {
                 return
             }
             
-            // FILTRAGE STRICTEMENT RÉSERVÉ AUX CLICS EXPLICITES DE L'UTILISATEUR
+            // FILTRAGE STRICTEMENT RÉSERVÉ AUX CLICS EXPLICITES SUR DES LIENS
             // Ne bloque JAMAIS les chargements de pages initiaux, ni les redirections de login !
             if navigationAction.navigationType == .linkActivated {
                 let host = url.host?.lowercased() ?? ""
@@ -217,9 +231,22 @@ public struct SocialWebView: UIViewRepresentable {
         }
         
         public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            parent.navigationModel.loadError = nil
             let updatedCSS = ContentBlockerScripts.makeCSS(for: parent.platform, config: parent.config)
             let script = ContentBlockerScripts.makeCSSInjectionScript(cssContent: updatedCSS)
             webView.evaluateJavaScript(script, completionHandler: nil)
+        }
+        
+        public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            parent.navigationModel.isLoading = false
+            parent.navigationModel.loadError = error.localizedDescription
+            print("[PureSocial] Erreur de navigation : \(error.localizedDescription)")
+        }
+        
+        public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            parent.navigationModel.isLoading = false
+            parent.navigationModel.loadError = error.localizedDescription
+            print("[PureSocial] Erreur de chargement initial : \(error.localizedDescription)")
         }
         
         public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
