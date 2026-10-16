@@ -7,6 +7,7 @@ import SwiftUI
 public struct ImmersiveSocialView: View {
     public let platform: SocialPlatform
     @ObservedObject public var config: ConfigManager
+    public let isActive: Bool
     public let onReturnHome: () -> Void
     
     @StateObject private var navModel = WebViewNavigationModel()
@@ -18,10 +19,12 @@ public struct ImmersiveSocialView: View {
     public init(
         platform: SocialPlatform,
         config: ConfigManager = .shared,
+        isActive: Bool = true,
         onReturnHome: @escaping () -> Void
     ) {
         self.platform = platform
         self.config = config
+        self.isActive = isActive
         self.onReturnHome = onReturnHome
     }
     
@@ -114,13 +117,22 @@ public struct ImmersiveSocialView: View {
                 .padding(.bottom, 120) // Positionné au-dessus de la barre d'onglets inférieure
             }
         }
+        .onChange(of: isActive) { active in
+            if !active {
+                // Pause immédiate de toutes les vidéos et sons dès que l'écran repasse en arrière-plan
+                navModel.evaluateJavaScript("document.querySelectorAll('video, audio').forEach(function(el){ el.pause(); });")
+            }
+        }
     }
     
     // MARK: - Bouton Bulle Compact & Rétractable
     private var smartFloatingButton: some View {
         Menu {
             // Option 1 : Retour Accueil immédiat
-            Button(action: onReturnHome) {
+            Button(action: {
+                navModel.evaluateJavaScript("document.querySelectorAll('video, audio').forEach(function(el){ el.pause(); });")
+                onReturnHome()
+            }) {
                 Label("Accueil PureSocial", systemImage: "house.fill")
             }
             
@@ -149,16 +161,17 @@ public struct ImmersiveSocialView: View {
         } label: {
             ZStack {
                 Circle()
-                    .fill(.ultraThinMaterial)
-                    .frame(width: 48, height: 48)
-                    .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
+                .fill(.ultraThinMaterial)
+                .frame(width: 48, height: 48)
+                .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
                 
                 Image(systemName: "house.fill")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundColor(.primary)
             }
         } primaryAction: {
-            // Un tap direct retourne immédiatement à l'accueil
+            // Un tap direct coupe le son/média et retourne immédiatement à l'accueil
+            navModel.evaluateJavaScript("document.querySelectorAll('video, audio').forEach(function(el){ el.pause(); });")
             onReturnHome()
         }
     }

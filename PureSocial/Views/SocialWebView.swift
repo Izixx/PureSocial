@@ -15,6 +15,7 @@ public final class WebViewNavigationModel: ObservableObject {
     fileprivate var actionGoForward: (() -> Void)?
     fileprivate var actionReload: (() -> Void)?
     fileprivate var actionLoadURL: ((URL) -> Void)?
+    fileprivate var actionEvaluateJavaScript: ((String, ((Result<Any, Error>) -> Void)?) -> Void)?
     
     public init() {}
     
@@ -27,6 +28,9 @@ public final class WebViewNavigationModel: ObservableObject {
     public func load(url: URL) {
         loadError = nil
         actionLoadURL?(url)
+    }
+    public func evaluateJavaScript(_ script: String, completion: ((Result<Any, Error>) -> Void)? = nil) {
+        actionEvaluateJavaScript?(script, completion)
     }
 }
 
@@ -188,6 +192,15 @@ public struct SocialWebView: UIViewRepresentable {
                 let request = URLRequest(url: url)
                 webView?.load(request)
             }
+            model.actionEvaluateJavaScript = { [weak webView] script, completion in
+                webView?.evaluateJavaScript(script) { result, error in
+                    if let error = error {
+                        completion?(.failure(error))
+                    } else {
+                        completion?(.success(result as Any))
+                    }
+                }
+            }
         }
         
         @objc func handleRefreshControl(_ sender: UIRefreshControl) {
@@ -202,12 +215,27 @@ public struct SocialWebView: UIViewRepresentable {
                 return
             }
             
+            let host = url.host?.lowercased() ?? ""
+            let path = url.path.lowercased()
+            let fullURL = url.absoluteString.lowercased()
+            
+            // FILTRAGE TIKTOK : Restreindre strictement aux messages directs
+            if host.contains("tiktok.com") {
+                let isLogin = fullURL.contains("login") || fullURL.contains("passport") || fullURL.contains("auth")
+                if !isLogin {
+                    if path == "/" || path == "/foryou" || path.hasPrefix("/foryou") || path.hasPrefix("/following") || path.hasPrefix("/explore") {
+                        decisionHandler(.cancel)
+                        if let messagesURL = URL(string: "https://www.tiktok.com/messages") {
+                            webView.load(URLRequest(url: messagesURL))
+                        }
+                        return
+                    }
+                }
+            }
+            
             // FILTRAGE STRICTEMENT RÉSERVÉ AUX CLICS EXPLICITES SUR DES LIENS
             // Ne bloque JAMAIS les chargements de pages initiaux, ni les redirections de login !
             if navigationAction.navigationType == .linkActivated {
-                let host = url.host?.lowercased() ?? ""
-                let path = url.path.lowercased()
-                
                 // Bloquer les clics utilisateur vers les Reels
                 if host.contains("instagram.com") && parent.config.hideInstaReels && (path.contains("/reels/") || path.hasPrefix("/reel/")) {
                     decisionHandler(.cancel)

@@ -17,7 +17,7 @@ public enum SocialPlatform: String, CaseIterable, Identifiable, Codable {
         case .youtube:
             return URL(string: "https://m.youtube.com")!
         case .tiktok:
-            return URL(string: "https://www.tiktok.com")!
+            return URL(string: "https://www.tiktok.com/messages")!
         case .x:
             return URL(string: "https://x.com")!
         }
@@ -61,7 +61,7 @@ public enum SocialPlatform: String, CaseIterable, Identifiable, Codable {
         case .youtube:
             return "Mode Productif (Sans Shorts, sans fil infini, sans suggestions)"
         case .tiktok:
-            return "Mode Consultation Pure (Sans Pour Toi, sans flux infini)"
+            return "Mode Messagerie Pure (Accès direct et exclusif aux Messages)"
         case .x:
             return "Mode Suivi (Flux Abonnements uniquement, sans Pour Vous)"
         }

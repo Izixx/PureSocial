@@ -2,8 +2,8 @@ import Foundation
 import WebKit
 
 /// Fournit les feuilles de style CSS et les scripts JavaScript (MutationObserver)
-/// pour bloquer les composants addictifs (Reels dans le fil, Shorts, Explorer),
-/// neutraliser le son automatique, et éliminer les bannières intrusives.
+/// pour bloquer les composants addictifs (Reels dans le fil, Shorts, vidéos TikTok),
+/// neutraliser le son automatique, et forcer le mode Messagerie Pure sur TikTok.
 public struct ContentBlockerScripts {
     
     // MARK: - Générateur de CSS Global & Spécifique
@@ -165,17 +165,53 @@ public struct ContentBlockerScripts {
         return css.joined(separator: "\n")
     }
     
-    // MARK: - CSS TikTok
+    // MARK: - CSS TikTok (Mode Messagerie Pure : Masquer tout le flux vidéo)
     
     private static func makeTikTokCSS(config: ConfigManager) -> String {
         var css: [String] = []
-        if config.hideTikTokFYP {
-            css.append("""
-            div[data-e2e="recommend-list-item-container"] {
-                display: none !important;
-            }
-            """)
+        
+        css.append("""
+        /* 1. Masquer tout le flux de vidéos TikTok */
+        div[data-e2e="recommend-list-item-container"],
+        div[data-e2e="feed-for-you"],
+        div[data-e2e="feed-following"],
+        div[data-e2e="feed-live"],
+        div[class*="DivVideoFeed"],
+        div[class*="DivFeedContainer"],
+        #main-content-homepage_hot,
+        div[data-e2e="user-post-item-list"],
+        div:has(> video),
+        main > div:has(video),
+        div[class*="DivPlayerContainer"],
+        div[class*="DivVideoWrapper"],
+        div[class*="VideoCard"] {
+            display: none !important;
+            visibility: hidden !important;
         }
+
+        /* 2. Masquer les onglets et boutons Pour Toi / Suivis / Amis / Live / Créer */
+        a[href="/"],
+        a[href*="/foryou"],
+        a[href*="/following"],
+        a[href*="/explore"],
+        a[href*="/friends"],
+        a[href*="/live"],
+        div[data-e2e="nav-foryou"],
+        div[data-e2e="nav-following"],
+        div[data-e2e="nav-explore"],
+        div[data-e2e="nav-friends"],
+        div[data-e2e="nav-live"],
+        div[data-e2e="nav-upload"],
+        div[data-e2e="bottom-nav-foryou"],
+        div[data-e2e="bottom-nav-following"],
+        div[data-e2e="bottom-nav-home"],
+        div[data-e2e="bottom-nav-upload"] {
+            display: none !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+        }
+        """)
+        
         return css.joined(separator: "\n")
     }
     
@@ -249,14 +285,12 @@ public struct ContentBlockerScripts {
                 
                 // Nettoyage Instagram
                 if (platform === "Instagram") {
-                    // Masquer la bannière "Use the app"
                     document.querySelectorAll('div, section').forEach(function(el) {
                         if (el.innerText && el.innerText.trim().startsWith('Use the app') && el.children.length < 5) {
                             el.style.display = 'none';
                         }
                     });
                     
-                    // Masquer les articles Reels dans le fil
                     if (\(config.hideInstaReels)) {
                         document.querySelectorAll('article').forEach(function(article) {
                             if (article.querySelector('video') || article.querySelector('a[href*="/reel/"]') || article.querySelector('a[href*="/reels/"]')) {
@@ -270,7 +304,6 @@ public struct ContentBlockerScripts {
                         });
                     }
                     
-                    // Si mode masquer tout le fil d'actualité actif
                     if (\(config.hideInstaMainFeed) && window.location.pathname === "/") {
                         var isLoginPage = !!document.querySelector('input[type="password"]');
                         if (!isLoginPage) {
@@ -279,6 +312,34 @@ public struct ContentBlockerScripts {
                             });
                         }
                     }
+                }
+                
+                // Nettoyage TikTok (Mode Messagerie Pure)
+                if (platform === "TikTok") {
+                    var path = window.location.pathname;
+                    var full = window.location.href;
+                    var isAuth = full.indexOf("login") !== -1 || full.indexOf("passport") !== -1 || full.indexOf("auth") !== -1;
+                    
+                    // Si on atterrit sur le flux vidéo (/ ou /foryou), forcer la redirection vers /messages (hors page de login)
+                    if (!isAuth && !document.querySelector('input[type="password"]')) {
+                        if (path === "/" || path === "/foryou" || path === "/following" || path === "/explore" || path.indexOf("/video/") !== -1) {
+                            window.location.replace("/messages");
+                            return;
+                        }
+                    }
+                    
+                    // Masquer tout lecteur vidéo sur TikTok et couper le son
+                    document.querySelectorAll('video').forEach(function(v) {
+                        v.pause();
+                        v.muted = true;
+                        var feedItem = v.closest('div[data-e2e="recommend-list-item-container"], div[class*="DivVideoFeed"], div[class*="DivFeedContainer"], div[class*="DivPlayerContainer"]');
+                        if (feedItem) feedItem.style.display = 'none';
+                    });
+                    
+                    // Masquer les boutons Pour Toi / Navigation
+                    document.querySelectorAll('a[href="/"], a[href*="/foryou"], a[href*="/following"], a[href*="/explore"], div[data-e2e*="foryou"], div[data-e2e*="home"]').forEach(function(el) {
+                        el.style.display = 'none';
+                    });
                 }
                 
                 // Nettoyage YouTube
@@ -291,7 +352,6 @@ public struct ContentBlockerScripts {
             
             cleanDOM();
             
-            // Observer les nouveaux éléments ajoutés au DOM
             var observer = new MutationObserver(function() {
                 cleanDOM();
             });
