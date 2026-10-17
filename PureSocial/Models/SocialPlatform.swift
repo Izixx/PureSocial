@@ -66,4 +66,17 @@ public enum SocialPlatform: String, CaseIterable, Identifiable, Codable {
             return "Mode Suivi (Flux Abonnements uniquement, sans Pour Vous)"
         }
     }
+    
+    /// User-Agent adapté à chaque plateforme.
+    /// TikTok requiert impérativement un User-Agent Desktop (Safari macOS) pour servir
+    /// l'application Web de messagerie directe (/messages) et le flux de connexion,
+    /// sous peine de renvoyer un code 404 sur sa passerelle mobile (serverless.tiktok.mobile).
+    public func effectiveUserAgent(defaultAgent: String) -> String {
+        switch self {
+        case .tiktok:
+            return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15"
+        default:
+            return defaultAgent.isEmpty ? "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1" : defaultAgent
+        }
+    }
 }

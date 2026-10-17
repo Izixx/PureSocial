@@ -80,10 +80,9 @@ public struct SocialWebView: UIViewRepresentable {
         webView.uiDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
         
-        // Si aucun User-Agent personnalisé n'est forcé, utiliser le User-Agent standard Safari
-        if !config.customUserAgent.isEmpty {
-            webView.customUserAgent = config.customUserAgent
-        }
+        // Configuration du User-Agent optimal pour la plateforme (ex: desktop pour TikTok)
+        let desiredUserAgent = platform.effectiveUserAgent(defaultAgent: config.customUserAgent)
+        webView.customUserAgent = desiredUserAgent
         
         // Fond blanc/système pour éviter tout artefact noir
         webView.backgroundColor = .systemBackground
@@ -107,8 +106,9 @@ public struct SocialWebView: UIViewRepresentable {
     }
     
     public func updateUIView(_ webView: WKWebView, context: Context) {
-        if !config.customUserAgent.isEmpty && webView.customUserAgent != config.customUserAgent {
-            webView.customUserAgent = config.customUserAgent
+        let desiredUserAgent = platform.effectiveUserAgent(defaultAgent: config.customUserAgent)
+        if webView.customUserAgent != desiredUserAgent {
+            webView.customUserAgent = desiredUserAgent
         }
         
         // N'exécute le CSS dynamique que si la page est déjà prête
@@ -219,11 +219,13 @@ public struct SocialWebView: UIViewRepresentable {
             let path = url.path.lowercased()
             let fullURL = url.absoluteString.lowercased()
             
-            // FILTRAGE TIKTOK : Restreindre strictement aux messages directs
-            if host.contains("tiktok.com") {
-                let isLogin = fullURL.contains("login") || fullURL.contains("passport") || fullURL.contains("auth")
-                if !isLogin {
-                    if path == "/" || path == "/foryou" || path.hasPrefix("/foryou") || path.hasPrefix("/following") || path.hasPrefix("/explore") {
+            // FILTRAGE STRICTEMENT RÉSERVÉ AUX CLICS EXPLICITES SUR DES LIENS
+            // Ne bloque JAMAIS les chargements de pages initiaux, ni les redirections automatiques du serveur !
+            if navigationAction.navigationType == .linkActivated {
+                // TikTok : Bloquer les clics utilisateur vers les flux vidéo et forcer les messages
+                if host.contains("tiktok.com") {
+                    let isLogin = fullURL.contains("login") || fullURL.contains("passport") || fullURL.contains("auth")
+                    if !isLogin && (path == "/" || path.contains("/foryou") || path.contains("/following") || path.contains("/explore") || path.contains("/video/")) {
                         decisionHandler(.cancel)
                         if let messagesURL = URL(string: "https://www.tiktok.com/messages") {
                             webView.load(URLRequest(url: messagesURL))
@@ -231,18 +233,14 @@ public struct SocialWebView: UIViewRepresentable {
                         return
                     }
                 }
-            }
-            
-            // FILTRAGE STRICTEMENT RÉSERVÉ AUX CLICS EXPLICITES SUR DES LIENS
-            // Ne bloque JAMAIS les chargements de pages initiaux, ni les redirections de login !
-            if navigationAction.navigationType == .linkActivated {
-                // Bloquer les clics utilisateur vers les Reels
+                
+                // Instagram : Bloquer les clics utilisateur vers les Reels
                 if host.contains("instagram.com") && parent.config.hideInstaReels && (path.contains("/reels/") || path.hasPrefix("/reel/")) {
                     decisionHandler(.cancel)
                     return
                 }
                 
-                // Convertir les clics Shorts en vidéos classiques
+                // YouTube : Convertir les clics Shorts en vidéos classiques
                 if host.contains("youtube.com") && parent.config.hideYTShorts && path.hasPrefix("/shorts/") {
                     let videoID = url.lastPathComponent
                     if !videoID.isEmpty && videoID != "shorts" {
@@ -258,6 +256,24 @@ public struct SocialWebView: UIViewRepresentable {
             decisionHandler(.allow)
         }
         
+        /// Détecte les interruptions normales de chargement de page qui ne constituent pas des erreurs réseau réelles
+        private func isIgnorableNavigationError(_ error: Error) -> Bool {
+            let nsError = error as NSError
+            // NSURLErrorCancelled (-999) : Annulation volontaire d'une requête (ex: redirection ou decisionHandler(.cancel))
+            if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+                return true
+            }
+            // Code 102 WebKitErrorDomain : "Frame load interrupted" lors de redirections ou annulations de trame
+            if nsError.code == 102 {
+                return true
+            }
+            // Code 204 WebKitErrorDomain : Plug-in will handle load
+            if nsError.code == 204 {
+                return true
+            }
+            return false
+        }
+        
         public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             parent.navigationModel.loadError = nil
             let updatedCSS = ContentBlockerScripts.makeCSS(for: parent.platform, config: parent.config)
@@ -267,12 +283,18 @@ public struct SocialWebView: UIViewRepresentable {
         
         public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             parent.navigationModel.isLoading = false
+            if isIgnorableNavigationError(error) {
+                return
+            }
             parent.navigationModel.loadError = error.localizedDescription
             print("[PureSocial] Erreur de navigation : \(error.localizedDescription)")
         }
         
         public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
             parent.navigationModel.isLoading = false
+            if isIgnorableNavigationError(error) {
+                return
+            }
             parent.navigationModel.loadError = error.localizedDescription
             print("[PureSocial] Erreur de chargement initial : \(error.localizedDescription)")
         }
