@@ -201,13 +201,16 @@ public struct ContentBlockerScripts {
         }
         
         /* 3. Masquer les bannières intrusives de téléchargement de l'application */
-        div[class*="DivDownloadApp"],
-        div[class*="DivAppBanner"],
-        div[class*="DivBannerContainer"] {
+        div[data-e2e="download-app-bar"],
+        div[data-e2e="download-app-button"],
+        a[href*="tiktok.com/download"] {
             display: none !important;
         }
         
         /* 4. S'assurer que le conteneur de messagerie et de chat s'affiche bien */
+        div[data-e2e="chat-inbox"],
+        div[data-e2e="chat-list"],
+        div[data-e2e="chat-window"],
         div[data-e2e="chat-room"],
         div[class*="ChatRoom"],
         div[class*="MessageContainer"],
@@ -321,20 +324,7 @@ public struct ContentBlockerScripts {
                 
                 // Nettoyage TikTok (Mode Messagerie Pure)
                 if (platform === "TikTok") {
-                    // Ne s'exécute QUE dans la fenêtre principale pour ne pas casser les iframes de messagerie
                     if (window.top !== window.self) return;
-                    
-                    var path = window.location.pathname;
-                    var full = window.location.href;
-                    var isAuth = full.indexOf("login") !== -1 || full.indexOf("passport") !== -1 || full.indexOf("auth") !== -1;
-                    
-                    // Si on atterrit sur le flux vidéo (/ ou /foryou), forcer la redirection vers /messages (hors page de login)
-                    if (!isAuth && !document.querySelector('input[type="password"]')) {
-                        if (path === "/" || path.indexOf("/foryou") !== -1 || path.indexOf("/following") !== -1 || path.indexOf("/explore") !== -1) {
-                            window.location.replace("/messages");
-                            return;
-                        }
-                    }
                     
                     // Couper le son et mettre en pause toute vidéo sans toucher aux conteneurs de chat
                     document.querySelectorAll('video').forEach(function(v) {
@@ -357,6 +347,25 @@ public struct ContentBlockerScripts {
             }
             
             cleanDOM();
+            
+            // Redirection TikTok différée et unique vers /messages si on atterrit sur le fil d'accueil (hors login)
+            if (platform === "TikTok" && window.top === window.self) {
+                var p = window.location.pathname;
+                var f = window.location.href;
+                var isAuth = f.indexOf("login") !== -1 || f.indexOf("passport") !== -1 || f.indexOf("auth") !== -1;
+                if (!isAuth && !document.querySelector('input[type="password"]')) {
+                    if (p === "/" || p.indexOf("/foryou") !== -1 || p.indexOf("/following") !== -1 || p.indexOf("/explore") !== -1) {
+                        if (!window._psRedirected) {
+                            window._psRedirected = true;
+                            setTimeout(function() {
+                                if (window.location.pathname === "/" || window.location.pathname.indexOf("/foryou") !== -1) {
+                                    window.location.replace("https://www.tiktok.com/messages");
+                                }
+                            }, 500);
+                        }
+                    }
+                }
+            }
             
             var observer = new MutationObserver(function() {
                 cleanDOM();

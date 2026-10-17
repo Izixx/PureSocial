@@ -65,6 +65,11 @@ public struct SocialWebView: UIViewRepresentable {
         // ne crashent pas avec "NotAllowedError", le son étant coupé par script JS (video.muted = true)
         configuration.mediaTypesRequiringUserActionForPlayback = []
         
+        // Mode Desktop pour TikTok pour charger l'application web de messagerie (/messages) et éviter les blocages mobiles
+        let webpagePreferences = WKWebpagePreferences()
+        webpagePreferences.preferredContentMode = platform == .tiktok ? .desktop : .mobile
+        configuration.defaultWebpagePreferences = webpagePreferences
+        
         // Injection des scripts de blocage
         let userContentController = WKUserContentController()
         let scripts = ContentBlockerScripts.makeUserScripts(for: platform, config: config)
@@ -209,9 +214,16 @@ public struct SocialWebView: UIViewRepresentable {
         
         // MARK: - WKNavigationDelegate
         
-        public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        public func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            preferences: WKWebpagePreferences,
+            decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
+        ) {
+            preferences.preferredContentMode = parent.platform == .tiktok ? .desktop : .mobile
+            
             guard let url = navigationAction.request.url else {
-                decisionHandler(.allow)
+                decisionHandler(.allow, preferences)
                 return
             }
             
@@ -226,7 +238,7 @@ public struct SocialWebView: UIViewRepresentable {
                 if host.contains("tiktok.com") {
                     let isLogin = fullURL.contains("login") || fullURL.contains("passport") || fullURL.contains("auth")
                     if !isLogin && (path == "/" || path.contains("/foryou") || path.contains("/following") || path.contains("/explore") || path.contains("/video/")) {
-                        decisionHandler(.cancel)
+                        decisionHandler(.cancel, preferences)
                         if let messagesURL = URL(string: "https://www.tiktok.com/messages") {
                             webView.load(URLRequest(url: messagesURL))
                         }
@@ -236,7 +248,7 @@ public struct SocialWebView: UIViewRepresentable {
                 
                 // Instagram : Bloquer les clics utilisateur vers les Reels
                 if host.contains("instagram.com") && parent.config.hideInstaReels && (path.contains("/reels/") || path.hasPrefix("/reel/")) {
-                    decisionHandler(.cancel)
+                    decisionHandler(.cancel, preferences)
                     return
                 }
                 
@@ -244,7 +256,7 @@ public struct SocialWebView: UIViewRepresentable {
                 if host.contains("youtube.com") && parent.config.hideYTShorts && path.hasPrefix("/shorts/") {
                     let videoID = url.lastPathComponent
                     if !videoID.isEmpty && videoID != "shorts" {
-                        decisionHandler(.cancel)
+                        decisionHandler(.cancel, preferences)
                         if let watchURL = URL(string: "https://m.youtube.com/watch?v=\(videoID)") {
                             webView.load(URLRequest(url: watchURL))
                         }
@@ -253,7 +265,7 @@ public struct SocialWebView: UIViewRepresentable {
                 }
             }
             
-            decisionHandler(.allow)
+            decisionHandler(.allow, preferences)
         }
         
         /// Détecte les interruptions normales de chargement de page qui ne constituent pas des erreurs réseau réelles
@@ -276,6 +288,21 @@ public struct SocialWebView: UIViewRepresentable {
         
         public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             parent.navigationModel.loadError = nil
+            
+            // TikTok : Si après authentification le site redirige vers le fil principal (/ ou /foryou),
+            // naviguer proprement et une seule fois vers /messages
+            if parent.platform == .tiktok, let currentURL = webView.url {
+                let path = currentURL.path.lowercased()
+                let full = currentURL.absoluteString.lowercased()
+                let isAuth = full.contains("login") || full.contains("passport") || full.contains("auth")
+                if !isAuth && (path == "/" || path.isEmpty || path.contains("/foryou") || path.contains("/following") || path.contains("/explore")) {
+                    if let messagesURL = URL(string: "https://www.tiktok.com/messages") {
+                        webView.load(URLRequest(url: messagesURL))
+                        return
+                    }
+                }
+            }
+            
             let updatedCSS = ContentBlockerScripts.makeCSS(for: parent.platform, config: parent.config)
             let script = ContentBlockerScripts.makeCSSInjectionScript(cssContent: updatedCSS)
             webView.evaluateJavaScript(script, completionHandler: nil)
