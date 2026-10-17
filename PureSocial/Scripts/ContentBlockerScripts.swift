@@ -171,44 +171,49 @@ public struct ContentBlockerScripts {
         var css: [String] = []
         
         css.append("""
-        /* 1. Masquer tout le flux de vidéos TikTok */
+        /* 1. Masquer uniquement les flux vidéo de recommandations algorithmiques */
         div[data-e2e="recommend-list-item-container"],
         div[data-e2e="feed-for-you"],
         div[data-e2e="feed-following"],
         div[data-e2e="feed-live"],
-        div[class*="DivVideoFeed"],
-        div[class*="DivFeedContainer"],
-        #main-content-homepage_hot,
-        div[data-e2e="user-post-item-list"],
-        div:has(> video),
-        main > div:has(video),
-        div[class*="DivPlayerContainer"],
-        div[class*="DivVideoWrapper"],
-        div[class*="VideoCard"] {
+        #main-content-homepage_hot {
             display: none !important;
             visibility: hidden !important;
         }
 
-        /* 2. Masquer les onglets et boutons Pour Toi / Suivis / Amis / Live / Créer */
-        a[href="/"],
+        /* 2. Masquer les boutons de navigation vers Pour Toi / Explorer / Live / Créer */
         a[href*="/foryou"],
         a[href*="/following"],
         a[href*="/explore"],
-        a[href*="/friends"],
         a[href*="/live"],
+        a[href*="/upload"],
         div[data-e2e="nav-foryou"],
         div[data-e2e="nav-following"],
         div[data-e2e="nav-explore"],
-        div[data-e2e="nav-friends"],
         div[data-e2e="nav-live"],
         div[data-e2e="nav-upload"],
         div[data-e2e="bottom-nav-foryou"],
         div[data-e2e="bottom-nav-following"],
-        div[data-e2e="bottom-nav-home"],
         div[data-e2e="bottom-nav-upload"] {
             display: none !important;
             visibility: hidden !important;
             pointer-events: none !important;
+        }
+        
+        /* 3. Masquer les bannières intrusives de téléchargement de l'application */
+        div[class*="DivDownloadApp"],
+        div[class*="DivAppBanner"],
+        div[class*="DivBannerContainer"] {
+            display: none !important;
+        }
+        
+        /* 4. S'assurer que le conteneur de messagerie et de chat s'affiche bien */
+        div[data-e2e="chat-room"],
+        div[class*="ChatRoom"],
+        div[class*="MessageContainer"],
+        div[class*="InboxContainer"],
+        main {
+            visibility: visible !important;
         }
         """)
         
@@ -316,28 +321,29 @@ public struct ContentBlockerScripts {
                 
                 // Nettoyage TikTok (Mode Messagerie Pure)
                 if (platform === "TikTok") {
+                    // Ne s'exécute QUE dans la fenêtre principale pour ne pas casser les iframes de messagerie
+                    if (window.top !== window.self) return;
+                    
                     var path = window.location.pathname;
                     var full = window.location.href;
                     var isAuth = full.indexOf("login") !== -1 || full.indexOf("passport") !== -1 || full.indexOf("auth") !== -1;
                     
                     // Si on atterrit sur le flux vidéo (/ ou /foryou), forcer la redirection vers /messages (hors page de login)
                     if (!isAuth && !document.querySelector('input[type="password"]')) {
-                        if (path === "/" || path === "/foryou" || path === "/following" || path === "/explore" || path.indexOf("/video/") !== -1) {
+                        if (path === "/" || path.indexOf("/foryou") !== -1 || path.indexOf("/following") !== -1 || path.indexOf("/explore") !== -1) {
                             window.location.replace("/messages");
                             return;
                         }
                     }
                     
-                    // Masquer tout lecteur vidéo sur TikTok et couper le son
+                    // Couper le son et mettre en pause toute vidéo sans toucher aux conteneurs de chat
                     document.querySelectorAll('video').forEach(function(v) {
                         v.pause();
                         v.muted = true;
-                        var feedItem = v.closest('div[data-e2e="recommend-list-item-container"], div[class*="DivVideoFeed"], div[class*="DivFeedContainer"], div[class*="DivPlayerContainer"]');
-                        if (feedItem) feedItem.style.display = 'none';
                     });
                     
-                    // Masquer les boutons Pour Toi / Navigation
-                    document.querySelectorAll('a[href="/"], a[href*="/foryou"], a[href*="/following"], a[href*="/explore"], div[data-e2e*="foryou"], div[data-e2e*="home"]').forEach(function(el) {
+                    // Masquer les boutons de navigation vers les flux
+                    document.querySelectorAll('a[href*="/foryou"], a[href*="/following"], a[href*="/explore"], div[data-e2e*="foryou"]').forEach(function(el) {
                         el.style.display = 'none';
                     });
                 }
@@ -370,13 +376,13 @@ public struct ContentBlockerScripts {
         scripts.append(WKUserScript(
             source: makeCSSInjectionScript(cssContent: css),
             injectionTime: .atDocumentEnd,
-            forMainFrameOnly: false
+            forMainFrameOnly: true
         ))
         
         scripts.append(WKUserScript(
             source: makeMutationObserverScript(for: platform, config: config),
             injectionTime: .atDocumentEnd,
-            forMainFrameOnly: false
+            forMainFrameOnly: true
         ))
         
         return scripts
