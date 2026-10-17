@@ -19,6 +19,7 @@ public struct MainView: View {
     @State private var showingSettings: Bool = false
     @State private var showingFriction: Bool = false
     @State private var pendingPlatform: SocialPlatform? = nil
+    @State private var frictionSessionId: UUID = UUID()
     @State private var isRedoingQuiz: Bool = false
     
     public init() {}
@@ -92,6 +93,7 @@ public struct MainView: View {
                             }
                         }
                     )
+                    .id(frictionSessionId)
                     .transition(.opacity)
                     .zIndex(15)
                 }
@@ -113,6 +115,7 @@ public struct MainView: View {
         loadedPlatforms.insert(platform)
         if config.intentionalFrictionEnabled {
             pendingPlatform = platform
+            frictionSessionId = UUID()
             withAnimation(.easeInOut(duration: 0.25)) {
                 showingFriction = true
             }

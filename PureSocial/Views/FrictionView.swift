@@ -4,27 +4,19 @@ import SwiftUI
 /// Casse la boucle de dopamine réflexe en imposant une pause de réflexion consciente.
 public struct FrictionView: View {
     public let platform: SocialPlatform
+    public let durationSeconds: Int
     public let onProceed: () -> Void
     public let onCancel: () -> Void
     
-    @State private var timeRemaining: Int
-    @State private var timerActive: Bool = true
+    @State private var progress: Double = 0.0
+    @State private var secondsRemaining: Int
+    @State private var isCompleted: Bool = false
     @State private var pulseAnimation: Bool = false
+    @State private var startDate: Date = Date()
+    @State private var selectedPromptIndex: Int = 0
     
-    private let totalTime: Int
-    
-    public init(
-        platform: SocialPlatform,
-        durationSeconds: Int = 5,
-        onProceed: @escaping () -> Void,
-        onCancel: @escaping () -> Void
-    ) {
-        self.platform = platform
-        self.totalTime = max(1, durationSeconds)
-        self._timeRemaining = State(initialValue: max(1, durationSeconds))
-        self.onProceed = onProceed
-        self.onCancel = onCancel
-    }
+    private let totalTime: Double
+    private let timer = Timer.publish(every: 0.03, on: .main, in: .common).autoconnect()
     
     private let mindfulnessPrompts = [
         "Quelle est ton intention précise en ouvrant cette application ?",
@@ -33,50 +25,59 @@ public struct FrictionView: View {
         "De quoi as-tu réellement besoin à cet instant précis ?"
     ]
     
-    @State private var selectedPromptIndex: Int = 0
+    public init(
+        platform: SocialPlatform,
+        durationSeconds: Int = 5,
+        onProceed: @escaping () -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.platform = platform
+        let validDuration = max(1, durationSeconds)
+        self.durationSeconds = validDuration
+        self.totalTime = Double(validDuration)
+        self._secondsRemaining = State(initialValue: validDuration)
+        self.onProceed = onProceed
+        self.onCancel = onCancel
+    }
     
     public var body: some View {
         ZStack {
-            // Arrière-plan doux et apaisant
+            // Arrière-plan sombre/système
             Color(UIColor.systemBackground)
                 .ignoresSafeArea()
             
             VStack(spacing: 32) {
                 Spacer()
                 
-                // Icône de la plateforme avec indicateur de pause
+                // Jauge circulaire de réflexion (Se remplit de 0% à 100% de manière fluide)
                 ZStack {
+                    // Anneau d'arrière-plan discret
                     Circle()
-                        .stroke(platform.themeColor.opacity(0.15), lineWidth: 8)
-                        .frame(width: 120, height: 120)
+                        .stroke(platform.themeColor.opacity(0.18), lineWidth: 8)
+                        .frame(width: 130, height: 130)
                     
+                    // Boucle de progression qui se referme progressivement à 100%
                     Circle()
-                        .trim(from: 0, to: CGFloat(timeRemaining) / CGFloat(totalTime))
+                        .trim(from: 0.0, to: CGFloat(progress))
                         .stroke(
                             platform.themeColor,
                             style: StrokeStyle(lineWidth: 8, lineCap: .round)
                         )
                         .rotationEffect(.degrees(-90))
-                        .animation(.linear(duration: 1.0), value: timeRemaining)
-                        .frame(width: 120, height: 120)
+                        .frame(width: 130, height: 130)
                     
                     VStack(spacing: 4) {
-                        Image(systemName: platform.sfSymbol)
+                        Image(systemName: isCompleted ? "checkmark" : platform.sfSymbol)
                             .font(.system(size: 32, weight: .semibold))
                             .foregroundColor(platform.themeColor)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isCompleted)
                         
-                        Text("\(timeRemaining)s")
+                        Text(isCompleted ? "Prêt" : "\(secondsRemaining)s")
                             .font(.system(size: 20, weight: .bold, design: .rounded))
                             .foregroundColor(.primary)
                     }
                 }
-                .scaleEffect(pulseAnimation ? 1.04 : 0.96)
-                .onAppear {
-                    withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
-                        pulseAnimation = true
-                    }
-                    selectedPromptIndex = Int.random(in: 0..<mindfulnessPrompts.count)
-                }
+                .scaleEffect(isCompleted ? 1.06 : (pulseAnimation ? 1.02 : 0.98))
                 
                 // Message de pleine conscience
                 VStack(spacing: 12) {
@@ -96,7 +97,7 @@ public struct FrictionView: View {
                 
                 // Actions utilisateur
                 VStack(spacing: 14) {
-                    // Bouton de victoire : Faire demi-tour
+                    // Bouton 1 : Faire demi-tour (Victoire Focus)
                     Button(action: onCancel) {
                         HStack {
                             Image(systemName: "checkmark.shield.fill")
@@ -110,29 +111,52 @@ public struct FrictionView: View {
                         .cornerRadius(14)
                     }
                     
-                    // Bouton Continuer (Débloqué après expiration du chronomètre)
+                    // Bouton 2 : Continuer (Débloqué UNIQUEMENT lorsque la boucle est à 100% fermée)
                     Button(action: {
-                        if timeRemaining <= 0 {
+                        if isCompleted {
                             onProceed()
                         }
                     }) {
-                        Text(timeRemaining > 0 ? "Réflexion en cours (\(timeRemaining)s)..." : "Continuer vers \(platform.rawValue)")
-                            .fontWeight(.medium)
+                        Text(isCompleted ? "Continuer vers \(platform.rawValue)" : "Pause de réflexion (\(secondsRemaining)s)...")
+                            .fontWeight(.semibold)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
-                            .background(timeRemaining <= 0 ? platform.themeColor : Color.secondary.opacity(0.2))
-                            .foregroundColor(timeRemaining <= 0 ? .white : .secondary)
+                            .background(isCompleted ? platform.themeColor : Color.secondary.opacity(0.15))
+                            .foregroundColor(isCompleted ? (platform == .tiktok ? .black : .white) : .secondary)
                             .cornerRadius(14)
+                            .animation(.easeInOut(duration: 0.25), value: isCompleted)
                     }
-                    .disabled(timeRemaining > 0)
+                    .disabled(!isCompleted)
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 24)
             }
         }
-        .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in
-            if timeRemaining > 0 {
-                timeRemaining -= 1
+        .onAppear {
+            startDate = Date()
+            progress = 0.0
+            secondsRemaining = durationSeconds
+            isCompleted = false
+            selectedPromptIndex = Int.random(in: 0..<mindfulnessPrompts.count)
+            withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                pulseAnimation = true
+            }
+        }
+        .onReceive(timer) { _ in
+            guard !isCompleted else { return }
+            let elapsed = Date().timeIntervalSince(startDate)
+            let newProgress = min(1.0, elapsed / totalTime)
+            progress = newProgress
+            
+            let remaining = max(0, Int(ceil(totalTime - elapsed)))
+            secondsRemaining = remaining
+            
+            if elapsed >= totalTime && !isCompleted {
+                isCompleted = true
+                progress = 1.0
+                secondsRemaining = 0
+                let generator = UINotificationFeedbackGenerator()
+                generator.notificationOccurred(.success)
             }
         }
     }
